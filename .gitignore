@@ -1,0 +1,3 @@
+Lox
+.build/*.hi
+.build/*.o
