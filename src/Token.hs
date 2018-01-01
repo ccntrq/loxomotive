@@ -2,7 +2,7 @@ module Token where
 
 import TokenType
 
-data Token =
+data Token = Token
   { t_type :: TokenType
   , t_lexeme :: String
   , t_literal :: Maybe String -- TODO: Convert to runtime value

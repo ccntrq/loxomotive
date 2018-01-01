@@ -44,3 +44,4 @@ data TokenType
   | VAR
   | WHILE
   | EOF
+  deriving (Show)
