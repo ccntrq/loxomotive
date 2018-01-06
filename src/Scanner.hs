@@ -4,6 +4,7 @@ import Util
 
 import Token
 import TokenType
+import Object
 
 import Control.Conditional
 
@@ -106,8 +107,6 @@ identifier = (munchChars isAlphaNumeric) >> do
       Just t -> addToken t
       Nothing -> addToken IDENTIFIER
 
--- TODO:
--- * create runtime value
 number :: Scanner Token
 number = (munchChars isDigit) >> do
     c <- peek
@@ -116,9 +115,6 @@ number = (munchChars isDigit) >> do
         then advance >> munchChars isDigit >> addToken NUMBER
         else addToken NUMBER
 
--- TODO:
--- * strip the quotes
--- * create runtime value
 string :: Scanner Token
 string = scanString >> ifM (isAtEnd) (unterminatedString) (advance >> addToken STRING)
   where
@@ -153,9 +149,15 @@ addToken :: TokenType -> Scanner Token
 addToken t = do
     st <- get
     let lexeme = slice (start st) (current st) (source st)
-    let token = Token t lexeme Nothing (line st)
+    let literal = literalFromLexeme t lexeme
+    let token = Token t lexeme literal (line st)
     put (st {tokens = token : (tokens st)})
     return token
+  where
+    literalFromLexeme :: TokenType -> String -> Maybe Object
+    literalFromLexeme NUMBER l = Just $ Number (read l)
+    literalFromLexeme STRING l = Just $ String ((init . tail) l) -- trim the qoutes
+    literalFromLexeme _ _ = Nothing
 
 isAtEnd :: Scanner Bool
 isAtEnd = do
