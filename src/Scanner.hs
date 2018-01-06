@@ -29,6 +29,19 @@ runScanner st s = runIdentity $ evalStateT (runExceptT s) st
 initState :: String -> ScannerState
 initState source = ScannerState source [] 1 0 0
 
+scanTokens :: Scanner [Token]
+scanTokens = ifM isAtEnd done next
+  where
+    done = do
+        _ <- addToken EOF
+        st <- get
+        return $ reverse (tokens st)
+    next = do
+        st <- get
+        put (st {start = current st})
+        _ <- scanToken
+        scanTokens
+
 scanToken :: Scanner Token
 scanToken = do
     c <- advance
@@ -54,18 +67,6 @@ scanToken = do
       '\n' -> incLine >> ignoreWhitespace
       _ -> throwError $ ScannerError ("Invalid Token: '" ++ (c:"'"))
 
-scanTokens :: Scanner [Token]
-scanTokens = ifM isAtEnd done next
-  where
-    done = do
-        _ <- addToken EOF
-        st <- get
-        return $ reverse (tokens st)
-    next = do
-        st <- get
-        put (st {start = current st})
-        _ <- scanToken
-        scanTokens
 
 scanComment :: Scanner Token
 scanComment = do
