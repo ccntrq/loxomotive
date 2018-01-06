@@ -46,4 +46,4 @@ data TokenType
   | EOF
   -- Throwaway token for comment/whitespace
   | WS
-  deriving (Show)
+  deriving (Show, Eq)
