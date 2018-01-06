@@ -1,4 +1,4 @@
-module Scanner where
+module Scanner (scan) where
 
 import Util
 
@@ -27,6 +27,9 @@ data ScannerState = ScannerState
 data ScannerError = ScannerError Int String deriving (Show)
 
 type Scanner a = ExceptT ScannerError (StateT ScannerState Identity) a
+
+scan :: String -> Either ScannerError [Token]
+scan src = runScanner (initState src) scanTokens
 
 runScanner :: ScannerState -> Scanner a -> Either ScannerError a
 runScanner st s = runIdentity $ evalStateT (runExceptT s) st

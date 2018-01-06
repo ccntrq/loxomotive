@@ -12,6 +12,6 @@ execFile path = readFile path >>= \src -> runSource src
 
 runSource :: String -> IO ()
 runSource src =
-    case runScanner (initState src) scanTokens of
+    case scan src of
       Left e -> print e
       Right ts -> mapM print ts >> return ()
