@@ -53,6 +53,7 @@ scanTokens :: Scanner [Token]
 scanTokens = ifM isAtEnd done next
   where
     done = do
+        _ <- addToken EOF
         st <- get
         return $ reverse (tokens st)
     next = do
