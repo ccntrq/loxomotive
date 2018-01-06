@@ -1,6 +1,7 @@
 module Lox where
 
 import Scanner
+import Parser
 
 import System.Environment
 
@@ -14,4 +15,4 @@ runSource :: String -> IO ()
 runSource src =
     case scan src of
       Left e -> print e
-      Right ts -> mapM print ts >> return ()
+      Right ts -> mapM print ts >> print (parseIt ts) >> return ()
