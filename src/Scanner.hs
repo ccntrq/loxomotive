@@ -75,16 +75,17 @@ isAtEnd = do
     st <- get
     return ((current st) >= (length $ source st))
 
+peek :: Scanner Char
+peek = ifM isAtEnd (return '\0') (get >>= (\s -> return (source s !! current s)))
+
 match :: Char -> Scanner Bool
 match c = do
     end <- isAtEnd
     if end
         then return False
         else do
-            st <- get
-            let cur = current st
-            let src = source st
-            if (src !! cur) == c
+            p <- peek
+            if p == c
                 then incCurrent >> return True
                 else return False
 
