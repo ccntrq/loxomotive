@@ -47,6 +47,7 @@ scanToken = do
       '=' -> ifM (match '=') (addToken EQUAL_EQUAL) (addToken EQUAL)
       '<' -> ifM (match '=') (addToken LESS_EQUAL) (addToken LESS)
       '>' -> ifM (match '=') (addToken GREATER_EQUAL) (addToken GREATER)
+      '/' -> ifM (match '/') (scanComment) (addToken SLASH)
       _ -> throwError $ ScannerError ("Invalid Token: '" ++ (c:"'"))
 
 scanTokens :: Scanner [Token]
@@ -61,6 +62,15 @@ scanTokens = ifM isAtEnd done next
         put (st {start = current st})
         _ <- scanToken
         scanTokens
+
+scanComment :: Scanner Token
+scanComment = do
+    p <- peek
+    e <- isAtEnd
+    if p /= '\n' && (not e)
+        then advance >> scanComment
+        else return $ Token WS "" Nothing 0 -- this token never gets added
+
 
 addToken :: TokenType -> Scanner Token
 addToken t = do

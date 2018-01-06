@@ -44,4 +44,6 @@ data TokenType
   | VAR
   | WHILE
   | EOF
+  -- Throwaway token for comment/whitespace
+  | WS
   deriving (Show)
