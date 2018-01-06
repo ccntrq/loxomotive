@@ -48,6 +48,10 @@ scanToken = do
       '<' -> ifM (match '=') (addToken LESS_EQUAL) (addToken LESS)
       '>' -> ifM (match '=') (addToken GREATER_EQUAL) (addToken GREATER)
       '/' -> ifM (match '/') (scanComment) (addToken SLASH)
+      ' ' -> ignoreWhitespace
+      '\r' -> ignoreWhitespace
+      '\t' -> ignoreWhitespace
+      '\n' -> incLine >> ignoreWhitespace
       _ -> throwError $ ScannerError ("Invalid Token: '" ++ (c:"'"))
 
 scanTokens :: Scanner [Token]
@@ -69,8 +73,10 @@ scanComment = do
     e <- isAtEnd
     if p /= '\n' && (not e)
         then advance >> scanComment
-        else return $ Token WS "" Nothing 0 -- this token never gets added
+        else ignoreWhitespace
 
+ignoreWhitespace :: Scanner Token
+ignoreWhitespace = return $ Token WS "" Nothing 0 -- this token never gets added
 
 addToken :: TokenType -> Scanner Token
 addToken t = do
@@ -106,8 +112,8 @@ advance = do
     incCurrent
     return $ (source st) !! cur
 
+incLine :: Scanner ()
+incLine = get >>= \s -> put s {line = line s + 1}
+
 incCurrent :: Scanner ()
-incCurrent = do
-    st <- get
-    let cur = current st
-    put $ st {current = cur + 1}
+incCurrent = get >>= \s -> put s {current = current s +1}
