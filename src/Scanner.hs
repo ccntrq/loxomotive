@@ -43,6 +43,10 @@ scanToken = do
       '+' -> addToken PLUS
       ';' -> addToken SEMICOLON
       '*' -> addToken STAR
+      '!' -> ifM (match '=') (addToken BANG_EQUAL) (addToken BANG)
+      '=' -> ifM (match '=') (addToken EQUAL_EQUAL) (addToken EQUAL)
+      '<' -> ifM (match '=') (addToken LESS_EQUAL) (addToken LESS)
+      '>' -> ifM (match '=') (addToken GREATER_EQUAL) (addToken GREATER)
       _ -> throwError $ ScannerError ("Invalid Token: '" ++ (c:"'"))
 
 scanTokens :: Scanner [Token]
@@ -70,9 +74,28 @@ isAtEnd = do
     st <- get
     return ((current st) >= (length $ source st))
 
+match :: Char -> Scanner Bool
+match c = do
+    end <- isAtEnd
+    if end
+        then return False
+        else do
+            st <- get
+            let cur = current st
+            let src = source st
+            if (src !! cur) == c
+                then incCurrent >> return True
+                else return False
+
 advance :: Scanner Char
 advance = do
     st <- get
     let cur = current st
-    put $ st {current = cur + 1}
+    incCurrent
     return $ (source st) !! cur
+
+incCurrent :: Scanner ()
+incCurrent = do
+    st <- get
+    let cur = current st
+    put $ st {current = cur + 1}
