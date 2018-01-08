@@ -11,7 +11,6 @@ import Control.Monad.Loops
 
 import Control.Monad.State
 import Control.Monad.Except
-import Control.Monad.Identity
 
 data ParserState = ParserState
     { tokens :: [Token]
@@ -20,13 +19,13 @@ data ParserState = ParserState
 
 data ParserError = ParserError Token String deriving (Show)
 
-type Parser a = ExceptT ParserError (StateT ParserState Identity) a
+type Parser a = ExceptT ParserError (StateT ParserState IO) a
 
-parseIt :: [Token] -> Either ParserError [Stmt]
+parseIt :: [Token] -> IO (Either ParserError [Stmt])
 parseIt ts = runParser (initState ts) parse
 
-runParser :: ParserState -> Parser a -> Either ParserError a
-runParser st p = runIdentity $ evalStateT (runExceptT p) st
+runParser :: ParserState -> Parser a -> IO (Either ParserError a)
+runParser st p = evalStateT (runExceptT p) st
 
 initState :: [Token] -> ParserState
 initState ts = ParserState ts 0
@@ -40,10 +39,12 @@ parse = parse' []
 
 declaration :: Parser Stmt
 declaration =
-    condM [ (match [CLASS],    classDeclaration)
+    catchError
+    (condM [ (match [CLASS],    classDeclaration)
           , (match [FUN],      function "function")
           , (match [VAR],      varDeclaration)
-          , (return otherwise, statement) ]
+          , (return otherwise, statement) ])
+    (\x -> handleParserError x >> declaration)
 
 statement :: Parser Stmt
 statement =
@@ -263,6 +264,27 @@ primary =
         return $ Grouping expr
     expectExpression :: Parser a
     expectExpression = peek >>= \t -> pError t "Expect expression."
+
+-- Error recovery
+
+handleParserError :: ParserError -> Parser ()
+handleParserError e = do
+    liftIO $ print e
+    synchronize
+
+synchronize :: Parser ()
+synchronize = do
+    _ <- advance
+    ifM (notM isAtEnd)
+        (ifM (liftM ((== SEMICOLON) . t_type) previous)
+             (return ())
+             (ifM (liftM (peekCheck . t_type) peek)
+                  (return ())
+                  (synchronize)))
+        (return ())
+  where
+    peekCheck t = t `elem` [CLASS, FUN, VAR, FOR, IF, WHILE, PRINT, RETURN]
+
 
 -- Parsing utils
 
