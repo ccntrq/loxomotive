@@ -38,23 +38,125 @@ parse = parse' []
 
 -- Statement parsing
 
--- WIP
 declaration :: Parser Stmt
-declaration = condM [ (return otherwise, statement) ]
-                 -- , (match CLASS, classDeclaration)
-                 -- , (match FUN,   function "function")
-                 -- , (match VAR,   varDeclaration "function")]
+declaration =
+    condM [ (match [CLASS],    classDeclaration)
+          , (match [FUN],      function "function")
+          , (match [VAR],      varDeclaration)
+          , (return otherwise, statement) ]
 
--- WIP
 statement :: Parser Stmt
-statement = condM [ (return otherwise, expressionStatement) ]
+statement =
+    condM [ (match [FOR], forStatement)
+          , (match [IF], ifStatement)
+          , (match [PRINT], printStatement)
+          , (match [RETURN], returnStatement)
+          , (match [WHILE], whileStatement)
+          , (match [LEFT_BRACE], block >>= return . Block )
+          , (return otherwise, expressionStatement) ]
 
--- WIP
+classDeclaration :: Parser Stmt
+classDeclaration = do
+    name <- consume IDENTIFIER "Expect class name."
+    superclass <- ifM (match [LESS])
+                      (consume IDENTIFIER "Expect superclass name." >>= \t -> return $ Just (Variable t))
+                      (return Nothing)
+    _ <- consume LEFT_BRACE "Expect '{' before class body."
+    methods <- methodLoop []
+    _ <- consume RIGHT_BRACE "Expect '}' after class body."
+    return $ Class name superclass methods
+  where
+    methodLoop ms = do
+        rb <- check RIGHT_BRACE
+        e <- isAtEnd
+        if' (not rb && not e) (function "method" >>= \m -> methodLoop (m:ms)) (return $ reverse ms)
+
+varDeclaration :: Parser Stmt
+varDeclaration = do
+    name <- consume IDENTIFIER  "Expect variable name."
+    initializer <- ifM (match [EQUAL])(liftM Just expression) (return Nothing)
+    _ <- consume SEMICOLON "Expect ';' after variable declaration."
+    return $ Var name initializer
+
+forStatement :: Parser Stmt
+forStatement = do
+    _ <- consume LEFT_PAREN  "Expect '(' after 'for'."
+    initializer <- ifM (match [SEMICOLON])
+                       (return Nothing)
+                       (ifM(match [VAR])
+                           (liftM Just varDeclaration)
+                           (liftM Just expressionStatement))
+    condition <- ifM (notM $ check SEMICOLON)(expression)(return $ Literal (Bool True))
+    _ <- consume SEMICOLON "Expect ' ' after loop condition."
+    increment <-  ifM (notM $ check RIGHT_PAREN)(liftM Just expression)(return Nothing)
+    _ <- consume RIGHT_PAREN "Expect ' ' after for clauses."
+    body <- statement
+    let body' = maybe body (\inc -> Block [body, Expression inc]) increment
+    let body'' = While condition body'
+    let body''' = maybe body'' (\ini -> Block [ini, body''] ) initializer
+    return body'''
+
+ifStatement :: Parser Stmt
+ifStatement = do
+    _ <- consume LEFT_PAREN "Expect '(' after if."
+    condition <- expression
+    _ <- consume RIGHT_PAREN "Expect ')' after if condition."
+    thenBranch <- statement
+    elseBranch <- ifM (match [ELSE])(liftM Just statement)(return Nothing)
+    return $ If condition thenBranch elseBranch
+
+printStatement :: Parser Stmt
+printStatement = do
+    value <- expression
+    _ <- consume SEMICOLON "Expect ';' after value."
+    return $ Print value
+
+returnStatement :: Parser Stmt
+returnStatement = do
+    keyword <- previous
+    value <- ifM (notM $ check SEMICOLON) (liftM Just expression)(return Nothing)
+    _ <- consume SEMICOLON "Expect ';' after return value."
+    return $ Return keyword value
+
+whileStatement :: Parser Stmt
+whileStatement = do
+    _ <- consume LEFT_PAREN "Expect '(' after 'while'."
+    condition <- expression
+    _ <- consume RIGHT_PAREN "Expect ')' after condition."
+    body <- statement
+    return $ While condition body
+
 expressionStatement :: Parser Stmt
 expressionStatement = do
     expr <- expression
     _ <- consume SEMICOLON "Expect ';' after expression"
     return $ Expression expr
+
+function :: String -> Parser Stmt
+function kind = do
+    name <- consume IDENTIFIER ("Expect " ++ kind ++ " name.")
+    _ <- consume LEFT_PAREN ("Expect '(' after " ++ kind ++ " name.")
+    parameters <- paramLoop []
+    _ <- consume RIGHT_PAREN "Expect ')' after parameters."
+    _ <- consume LEFT_BRACE ("Expect '{' before " ++ kind ++ " body.")
+    body <- block
+    return $ Function name parameters body
+  where
+    paramLoop params
+        | length params <= 8 = consume IDENTIFIER "Expect parameter name." >>= \p ->
+                              ifM (match [COMMA]) (paramLoop (p:params)) (return $ reverse (p:params))
+        | otherwise = peek >>= \e -> pError e "Cannot have more than 8 parameters"
+
+block :: Parser [Stmt]
+block = do
+    statements <- statementLoop []
+    _ <- consume RIGHT_BRACE "Expect '}' after block."
+    return statements
+  where
+    statementLoop stmts =
+        ifM (andM [notM $ check RIGHT_BRACE,notM isAtEnd])
+            (declaration >>= \d -> statementLoop (d:stmts))
+            (return $ reverse stmts)
 
 -- Expression parsing
 
@@ -121,7 +223,10 @@ finishCall callee = do
     return $ Call callee paren args
   where
     argLoop :: [Expr] -> Parser [Expr]
-    argLoop args = expression >>= \e -> ifM (match [COMMA]) (argLoop (e:args)) (return $ reverse (e:args))
+    argLoop args
+        | length args <= 8 = expression >>= \e ->
+                            ifM (match [COMMA]) (argLoop (e:args)) (return $ reverse (e:args))
+        | otherwise = peek >>= \e -> pError e "Cannot have more than 8 arguments"
 
 call :: Parser Expr
 call = do

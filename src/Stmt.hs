@@ -8,9 +8,9 @@ data Stmt
     | Class Token (Maybe Expr) [Stmt]
     | Expression Expr
     | Function Token [Token] [Stmt]
-    | If Expr Stmt Stmt
+    | If Expr Stmt (Maybe Stmt)
     | Print Expr
-    | Return Token Expr
-    | Var Token Expr
+    | Return Token (Maybe Expr)
+    | Var Token (Maybe Expr)
     | While Expr Stmt
     deriving (Show)
