@@ -30,7 +30,7 @@ parseIt ts = runParser (initState ts) parse
 runParser :: ParserState -> Parser a -> Either ParserError a
 runParser st p =
     let (res, finalState) = runIdentity $ runStateT (runExceptT p) st
-    in if null $ errors finalState then res else Left $ ParserErrorCollection (reverse . errors finalState)
+    in if null $ errors finalState then res else Left $ ParserErrorCollection $ (reverse . errors) finalState
 
 
 initState :: [Token] -> ParserState
