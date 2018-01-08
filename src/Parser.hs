@@ -277,6 +277,7 @@ handleParserError :: ParserError -> Parser ()
 handleParserError e = do
     st <- get
     put st { errors = e : errors st}
+    ifM (isAtEnd)(previous >>= \p -> pError p "__END__")(return ())
     synchronize
 
 synchronize :: Parser ()
