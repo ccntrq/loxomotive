@@ -11,24 +11,30 @@ import Control.Monad.Loops
 
 import Control.Monad.State
 import Control.Monad.Except
+import Control.Monad.Identity
 
 data ParserState = ParserState
     { tokens :: [Token]
     , current :: Int
+    , errors :: [ParserError]
     } deriving (Show)
 
-data ParserError = ParserError Token String deriving (Show)
+data ParserError = ParserError Token String
+                 | ParserErrorCollection [ParserError] deriving (Show)
 
-type Parser a = ExceptT ParserError (StateT ParserState IO) a
+type Parser a = ExceptT ParserError (StateT ParserState Identity) a
 
-parseIt :: [Token] -> IO (Either ParserError [Stmt])
+parseIt :: [Token] -> Either ParserError [Stmt]
 parseIt ts = runParser (initState ts) parse
 
-runParser :: ParserState -> Parser a -> IO (Either ParserError a)
-runParser st p = evalStateT (runExceptT p) st
+runParser :: ParserState -> Parser a -> Either ParserError a
+runParser st p =
+    let (res, finalState) = runIdentity $ runStateT (runExceptT p) st
+    in if null $ errors finalState then res else Left $ ParserErrorCollection (reverse . errors finalState)
+
 
 initState :: [Token] -> ParserState
-initState ts = ParserState ts 0
+initState ts = ParserState ts 0 []
 
 parse :: Parser [Stmt]
 parse = parse' []
@@ -39,11 +45,11 @@ parse = parse' []
 
 declaration :: Parser Stmt
 declaration =
-    catchError
-    (condM [ (match [CLASS],    classDeclaration)
+    condM [ (match [CLASS],    classDeclaration)
           , (match [FUN],      function "function")
           , (match [VAR],      varDeclaration)
-          , (return otherwise, statement) ])
+          , (return otherwise, statement) ]
+    `catchError`
     (\x -> handleParserError x >> declaration)
 
 statement :: Parser Stmt
@@ -269,7 +275,8 @@ primary =
 
 handleParserError :: ParserError -> Parser ()
 handleParserError e = do
-    liftIO $ print e
+    st <- get
+    put st { errors = e : errors st}
     synchronize
 
 synchronize :: Parser ()
