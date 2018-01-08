@@ -1,3 +1,8 @@
 module Object where
 
-data Object = Number Double | String String deriving (Show)
+data Object
+    = Number Double
+    | String String
+    | Bool Bool
+    | Undefined
+    deriving (Show)
