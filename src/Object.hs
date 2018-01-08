@@ -5,4 +5,4 @@ data Object
     | String String
     | Bool Bool
     | Undefined
-    deriving (Show)
+    deriving (Show, Eq)
