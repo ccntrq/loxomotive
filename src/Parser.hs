@@ -96,7 +96,7 @@ forStatement = do
     condition <- ifM (notM $ check SEMICOLON)(expression)(return $ Literal (Bool True))
     _ <- consume SEMICOLON "Expect ' ' after loop condition."
     increment <-  ifM (notM $ check RIGHT_PAREN)(liftM Just expression)(return Nothing)
-    _ <- consume RIGHT_PAREN "Expect ' ' after for clauses."
+    _ <- consume RIGHT_PAREN "Expect ')' after for clauses."
     body <- statement
     let body' = maybe body (\inc -> Block [body, Expression inc]) increment
     let body'' = While condition body'
