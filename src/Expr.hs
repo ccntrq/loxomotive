@@ -11,7 +11,7 @@ data Expr
     | Grouping Expr
     | Literal Object
     | Logical Expr Token Expr
-    | Set Object Token Expr
+    | Set Expr Token Expr
     | Super Token Token
     | This Token
     | Unary Token Expr
