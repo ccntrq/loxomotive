@@ -5,7 +5,7 @@ import Token
 
 data Stmt
     = Block [Stmt]
-    | Class Token Expr [Stmt]
+    | Class Token (Maybe Expr) [Stmt]
     | Expression Expr
     | Function Token [Token] [Stmt]
     | If Expr Stmt Stmt
