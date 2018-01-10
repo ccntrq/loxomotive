@@ -16,4 +16,4 @@ data Expr
     | This Token
     | Unary Token Expr
     | Variable Token
-    deriving (Show)
+    deriving (Show, Eq, Ord)

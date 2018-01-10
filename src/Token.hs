@@ -8,4 +8,4 @@ data Token = Token
   , t_lexeme :: String
   , t_literal :: Maybe Object
   , t_line :: Int
-  } deriving (Show)
+  } deriving (Show, Eq, Ord)

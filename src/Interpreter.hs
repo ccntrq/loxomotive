@@ -17,6 +17,7 @@ import Data.Map.Strict
 data InterpreterState
     = InterpreterState
     { globals :: Environment
+    , locals  :: Map Expr Int
     } deriving (Show)
 
 data InterpreterError = InterpreterError Token String deriving (Show)
@@ -25,7 +26,7 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    _ <- runInterpreter (InterpreterState mkGlobals) (interpretStmts stmts)
+    _ <- runInterpreter (InterpreterState mkGlobals empty) (interpretStmts stmts)
     return ()
 
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a)
