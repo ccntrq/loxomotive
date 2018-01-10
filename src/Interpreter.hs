@@ -1,18 +1,23 @@
 module Interpreter (interpret) where
 
-import Token
-import TokenType
+import Environment
+import Expr
 import Object
 import Stmt
-import Expr
-
-import Control.Conditional
+import Token
+import TokenType
 
 import Control.Monad.Except
 import Control.Monad.State
 
+import Control.Conditional
 
-data InterpreterState = InterpreterState deriving (Show)
+import Data.Map.Strict
+
+data InterpreterState
+    = InterpreterState
+    { globals :: Environment
+    } deriving (Show)
 
 data InterpreterError = InterpreterError Token String deriving (Show)
 
@@ -20,12 +25,14 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    _ <- runInterpreter InterpreterState $ interpretStmts stmts
+    _ <- runInterpreter (InterpreterState mkGlobals) (interpretStmts stmts)
     return ()
 
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a)
 runInterpreter st i = evalStateT (runExceptT i) st
 
+mkGlobals :: Environment
+mkGlobals = Environment $ fromList [("MAGIC_VAR", Number 42)]
 
 interpretStmts :: [Stmt] -> Interpreter ()
 interpretStmts [] = return ()
@@ -70,7 +77,20 @@ evaluate (Binary l op r) = do
     plus _ (Number a) (Number b) = return $ Number (a + b)
     plus _ (String a) (String b) = return $ String (a ++ b)
     plus op _ _ = runtimeError op "Operands must be two numbers or two strings"
+
+evaluate expr@(Variable name) = lookUpVariable name expr
+
 evaluate _ = error "fuck"
+
+lookUpVariable :: Token -> Expr -> Interpreter Object
+lookUpVariable name expr = gets (globals) >>= getEnv name
+
+getEnv :: Token -> Environment -> Interpreter Object
+getEnv name@(Token _ lexeme _ _) (Environment env) =
+    if' (member lexeme env)
+        (return $ findWithDefault Undefined lexeme env)
+        (runtimeError name ("Undefined variable '" ++ lexeme ++ "'."))
+
 
 onNumbers :: (Double -> Double -> a) -> Object -> Object -> a
 onNumbers operation (Number a) (Number b) = operation a b
