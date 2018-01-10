@@ -27,15 +27,15 @@ usage = version >> putStrLn "Usage: Lox [filename]"
 repl :: IO ()
 repl = do
   hSetBuffering stdout NoBuffering
-  repl'
+  repl' initState
   where
-    repl' = do
+    repl' state = do
         putStr "> "
         input <- getLine
         if input /= "quit"
             then do
-                runSource input
-                repl
+                state' <- runSource' state input
+                repl' state'
             else exit
 
 execFile :: String -> IO ()
@@ -48,6 +48,14 @@ runSource src =
       Right ts -> case parseIt ts of
           Left e -> print e
           Right stmts -> interpret stmts
+
+runSource' :: InterpreterState -> String -> IO InterpreterState
+runSource' state src =
+    case scan src of
+      Left e -> print e >> return state
+      Right ts -> case parseIt ts of
+          Left e -> print e >> return state
+          Right stmts -> interpret' state stmts
 
 exit :: IO ()
 exit = exitWith ExitSuccess

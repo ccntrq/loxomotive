@@ -1,4 +1,4 @@
-module Interpreter (interpret) where
+module Interpreter (interpret, interpret', initState, InterpreterState) where
 
 import Environment
 import Expr
@@ -26,11 +26,23 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    _ <- runInterpreter (InterpreterState mkGlobals empty) (interpretStmts stmts)
+    (res, s) <- runInterpreter initState (interpretStmts stmts)
+    print res
     return ()
 
-runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a)
-runInterpreter st i = evalStateT (runExceptT i) st
+interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
+interpret' state stmts = do
+    (res, s) <- runInterpreter state (interpretStmts stmts)
+    print s
+    print res
+    case res of
+        Left e -> print e >> return state
+        _ -> return s
+
+runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a, InterpreterState)
+runInterpreter st i = runStateT (runExceptT i) st
+
+initState = let globals = mkGlobals in InterpreterState globals globals Map.empty
 
 mkGlobals :: Environment
 mkGlobals = Environment $ fromList [("MAGIC_VAR", Number 42)]
