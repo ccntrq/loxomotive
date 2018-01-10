@@ -10,14 +10,17 @@ import TokenType
 import Control.Monad.Except
 import Control.Monad.State
 
+import Control.Monad.Extra
 import Control.Conditional
+import Data.Maybe
 
-import Data.Map.Strict
+import Data.Map.Strict as Map
 
 data InterpreterState
     = InterpreterState
     { globals :: Environment
-    , locals  :: Map Expr Int
+    , environment :: Environment
+    , locals  :: Map.Map Expr Int -- to store the distance
     } deriving (Show)
 
 data InterpreterError = InterpreterError Token String deriving (Show)
@@ -45,7 +48,7 @@ runInterpreter st i = runStateT (runExceptT i) st
 initState = let globals = mkGlobals in InterpreterState globals globals Map.empty
 
 mkGlobals :: Environment
-mkGlobals = Environment $ fromList [("MAGIC_VAR", Number 42)]
+mkGlobals = Environment Nothing $ fromList [("MAGIC_VAR", Number 42)]
 
 interpretStmts :: [Stmt] -> Interpreter ()
 interpretStmts [] = return ()
@@ -53,12 +56,27 @@ interpretStmts (s:stmts) = execute s >> interpretStmts stmts
 
 execute :: Stmt -> Interpreter ()
 execute (Expression expr) = evaluate expr >>= liftIO . print >> return ()
+
+execute (Var name value) = maybe (return Undefined)(evaluate)(value)>>= envDefine (t_lexeme name)
 execute _ = error "fuck"
 
 
 evaluate :: Expr -> Interpreter Object
+-- WIP
+-- evaluate (Call calleeExpr par argExprs) = do
+--     callee <- evaluate calleeExpr
+--     args <- mapM evaluate argExprs
+
+evaluate expr@(Assign name valueExpr) = do
+    value <- evaluate valueExpr
+    maybeM
+        (globalAssign name value)
+        (\dist -> envAssignAt dist name value)
+        (distanceLookup expr)
+    return value
+
 evaluate (Grouping e) = evaluate e
-evaluate (Literal obj) = return obj
+evaluate (Literal object) = return object
 
 evaluate (Unary op r) =  do
     right <- evaluate r
@@ -91,19 +109,30 @@ evaluate (Binary l op r) = do
     plus _ (String a) (String b) = return $ String (a ++ b)
     plus op _ _ = runtimeError op "Operands must be two numbers or two strings"
 
+-- WIP
+-- evaluate expr@(Super keyword methodname) = do
+--      distance <- liftM fromJust (distanceLookup expr)
+--      superclass <- envGetAt distance "super"
+--      object <- envGetAt (distance - 1) "this"
+--      method <- findMethod superclass object (t_lexeme methodname)
+
+evaluate expr@(This keyword) = lookUpVariable keyword expr
+
 evaluate expr@(Variable name) = lookUpVariable name expr
 
 evaluate _ = error "fuck"
 
+-- WIP
 lookUpVariable :: Token -> Expr -> Interpreter Object
-lookUpVariable name expr = gets (globals) >>= getEnv name
+lookUpVariable name expr =
+    maybeM
+    (gets (environment) >>= envGet name) -- FIXME: should lookup in globals
+    (\dist -> gets (environment) >>= envGetAt dist (t_lexeme name))
+    (distanceLookup expr)
 
-getEnv :: Token -> Environment -> Interpreter Object
-getEnv name@(Token _ lexeme _ _) (Environment env) =
-    if' (member lexeme env)
-        (return $ findWithDefault Undefined lexeme env)
-        (runtimeError name ("Undefined variable '" ++ lexeme ++ "'."))
 
+distanceLookup :: Expr -> Interpreter (Maybe Int)
+distanceLookup expr = gets (locals) >>= return . (Map.lookup expr)
 
 onNumbers :: (Double -> Double -> a) -> Object -> Object -> a
 onNumbers operation (Number a) (Number b) = operation a b
@@ -131,3 +160,61 @@ unaryMinus (Number n) = Number (-n)
 
 runtimeError :: Token -> String -> Interpreter a
 runtimeError t msg = throwError $ InterpreterError t msg
+
+-- Environment
+
+envGet :: Token -> Environment -> Interpreter Object
+envGet name@(Token _ lexeme _ _) (Environment enclosing values) =
+    if' (Map.member lexeme values)
+        (return $ Map.findWithDefault Undefined lexeme values)
+        (maybe (runtimeError name ("Undefined variable '" ++ lexeme ++ "'.")) (envGet name) (enclosing))
+
+-- doesn't bubble up enclosing environments and works outside the interpreter monad
+envGet' :: String -> Environment -> Object
+envGet' name (Environment _ values) = fromJust $ Map.lookup name values
+
+envGetAt :: Int -> String -> Environment -> Interpreter Object
+envGetAt distance name env = return $ envGet' name (ancestor distance env)
+
+envAssignAt :: Int -> Token -> Object -> Interpreter ()
+envAssignAt 0 name value = do
+    (Environment enclosing values) <- gets environment
+    putEnv $ Environment enclosing (insert (t_lexeme name) value values)
+envAssignAt distance name value = do
+    (Environment enclosing values) <- gets environment
+    putEnv $ fromJust enclosing
+    envAssignAt (distance - 1) name value
+    newEnclosing <- gets environment
+    putEnv $ Environment (Just newEnclosing) values
+
+envAssign name value = do
+   env@(Environment enclosing values) <- gets environment
+   if' (Map.member (t_lexeme name) values)
+       (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
+       (maybe
+           (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
+           (\e -> putEnv e >> envAssign name value >> putAsNewChild env)
+           (enclosing))
+
+
+globalAssign name value = do
+   env@(Environment enclosing values) <- gets environment
+   if' ((isNothing enclosing) && (Map.member (t_lexeme name) values))
+       (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
+       (maybe
+           (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
+           (\e -> putEnv e >> globalAssign name value >> putAsNewChild env)
+           (enclosing))
+
+envDefine name value = gets environment >>= \(Environment enclosing values) -> putEnv $ Environment enclosing (Map.insert name value values)
+
+
+putEnv :: Environment -> Interpreter ()
+putEnv env = get >>= \s -> put s {environment = env}
+
+putAsNewChild :: Environment -> Interpreter ()
+putAsNewChild (Environment _ values) = get >>= \s -> put s {environment = Environment (Just $ environment s) values}
+
+ancestor :: Int -> Environment -> Environment
+ancestor 0 env = env
+ancestor x (Environment enclosing _) = ancestor (x-1) (fromJust enclosing)
