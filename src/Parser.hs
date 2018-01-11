@@ -94,7 +94,7 @@ forStatement = do
                            (liftM Just varDeclaration)
                            (liftM Just expressionStatement))
     condition <- ifM (notM $ check SEMICOLON)(expression)(return $ Literal (Bool True))
-    _ <- consume SEMICOLON "Expect ' ' after loop condition."
+    _ <- consume SEMICOLON "Expect ';' after loop condition."
     increment <-  ifM (notM $ check RIGHT_PAREN)(liftM Just expression)(return Nothing)
     _ <- consume RIGHT_PAREN "Expect ')' after for clauses."
     body <- statement
@@ -214,7 +214,7 @@ logBinParser constructor ts next = do
   where
     loop e =
         ifM (match ts)
-          (previous >>= \op -> next >>= \right -> return $ constructor e op right)
+          (previous >>= \op -> next >>= \right -> loop $ constructor e op right)
           (return e)
 
 unary :: Parser Expr
