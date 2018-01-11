@@ -10,8 +10,8 @@ import TokenType
 import Control.Monad.Except
 import Control.Monad.State
 
-import Control.Monad.Extra
-import Control.Conditional
+import Control.Monad.Extra (ifM, maybeM)
+import Control.Conditional  (if')
 import Data.Maybe
 
 import Data.Map.Strict as Map
@@ -29,23 +29,24 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    (res, s) <- runInterpreter initState (interpretStmts stmts)
+    (res, _) <- runInterpreter initState (interpretStmts stmts)
     print res
     return ()
 
 interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
-interpret' state stmts = do
-    (res, s) <- runInterpreter state (interpretStmts stmts)
+interpret' st stmts = do
+    (res, s) <- runInterpreter st (interpretStmts stmts)
     print s
     print res
     case res of
-        Left e -> print e >> return state
+        Left e -> print e >> return st
         _ -> return s
 
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a, InterpreterState)
 runInterpreter st i = runStateT (runExceptT i) st
 
-initState = let globals = mkGlobals in InterpreterState globals globals Map.empty
+initState :: InterpreterState
+initState = InterpreterState mkGlobals mkGlobals Map.empty
 
 mkGlobals :: Environment
 mkGlobals = Environment Nothing $ fromList [("MAGIC_VAR", Number 42)]
@@ -55,10 +56,21 @@ interpretStmts [] = return ()
 interpretStmts (s:stmts) = execute s >> interpretStmts stmts
 
 execute :: Stmt -> Interpreter ()
-execute (Expression expr) = evaluate expr >>= liftIO . print >> return ()
+execute (Expression expr) = evaluate expr >>= liftIO . print >> return () -- TODO: remove print
 
 execute (Var name value) = maybe (return Undefined)(evaluate)(value)>>= envDefine (t_lexeme name)
-execute _ = error "fuck"
+
+execute (Print expr) = evaluate expr >>= liftIO . print -- TODO: implement 'stringify'
+
+execute stmt@(While condition body) =
+    ifM (liftM isTruthy (evaluate condition))
+        (execute body >> execute stmt)
+        (return ())
+
+execute (If condition thenStmt elseStmt) =
+    ifM (liftM isTruthy (evaluate condition))
+        (execute thenStmt)
+        (maybe (return ()) (execute) (elseStmt))
 
 
 evaluate :: Expr -> Interpreter Object
@@ -78,36 +90,39 @@ evaluate expr@(Assign name valueExpr) = do
 evaluate (Grouping e) = evaluate e
 evaluate (Literal object) = return object
 
-evaluate (Unary op r) =  do
+evaluate (Unary operator r) =  do
     right <- evaluate r
-    case t_type op of
+    case t_type operator of
         BANG -> return $ (Bool . not . isTruthy) right
-        MINUS -> checkNumberOperand op right >> (return $ unaryMinus right)
+        MINUS -> checkNumberOperand operator right >> (return $ unaryMinus right)
+        _ -> undefined
 
-evaluate (Logical l op r) = do
+evaluate (Logical l operator r) = do
     left <- evaluate l
-    case t_type op of
+    case t_type operator of
         OR -> if' (isTruthy left) (return left) (evaluate r)
         AND -> if' (not $ isTruthy left )(return left)(evaluate r)
+        _ -> undefined
 
-evaluate (Binary l op r) = do
+evaluate (Binary l operator r) = do
     left <- evaluate l
     right <- evaluate r
-    case t_type op of
+    case t_type operator of
         BANG_EQUAL -> return $ Bool (not (isEqual left right))
         EQUAL_EQUAL -> return $ Bool (isEqual left right)
-        GREATER -> checkNumberOperands op left right >> (return $ Bool (onNumbers (>) left right))
-        GREATER_EQUAL -> checkNumberOperands op left right >> (return $ Bool (onNumbers (>=) left right))
-        LESS -> checkNumberOperands op left right >> (return $ Bool (onNumbers (<) left right))
-        LESS_EQUAL -> checkNumberOperands op left right >> (return $ Bool (onNumbers (<=) left right))
-        MINUS -> checkNumberOperands op left right >> (return $ Number (onNumbers (-) left right))
-        SLASH -> checkNumberOperands op left right >> (return $ Number (onNumbers (/) left right))
-        STAR -> checkNumberOperands op left right >> (return $ Number (onNumbers (*) left right))
-        PLUS -> plus op left right
+        GREATER -> checkNumberOperands operator left right >> (return $ Bool (onNumbers (>) left right))
+        GREATER_EQUAL -> checkNumberOperands operator left right >> (return $ Bool (onNumbers (>=) left right))
+        LESS -> checkNumberOperands operator left right >> (return $ Bool (onNumbers (<) left right))
+        LESS_EQUAL -> checkNumberOperands operator left right >> (return $ Bool (onNumbers (<=) left right))
+        MINUS -> checkNumberOperands operator left right >> (return $ Number (onNumbers (-) left right))
+        SLASH -> checkNumberOperands operator left right >> (return $ Number (onNumbers (/) left right))
+        STAR -> checkNumberOperands operator left right >> (return $ Number (onNumbers (*) left right))
+        PLUS -> plus operator left right
+        _ -> undefined
   where
     plus _ (Number a) (Number b) = return $ Number (a + b)
     plus _ (String a) (String b) = return $ String (a ++ b)
-    plus op _ _ = runtimeError op "Operands must be two numbers or two strings"
+    plus optoken _ _ = runtimeError optoken "Operands must be two numbers or two strings"
 
 -- WIP
 -- evaluate expr@(Super keyword methodname) = do
@@ -136,6 +151,7 @@ distanceLookup expr = gets (locals) >>= return . (Map.lookup expr)
 
 onNumbers :: (Double -> Double -> a) -> Object -> Object -> a
 onNumbers operation (Number a) (Number b) = operation a b
+onNumbers _ _ _ = undefined
 
 checkNumberOperands :: Token -> Object -> Object -> Interpreter ()
 checkNumberOperands _ (Number _) (Number _) = return ()
@@ -155,6 +171,7 @@ isTruthy _ = True
 
 unaryMinus :: Object -> Object
 unaryMinus (Number n) = Number (-n)
+unaryMinus _ = undefined
 
 -- Error reporting
 
@@ -187,16 +204,19 @@ envAssignAt distance name value = do
     newEnclosing <- gets environment
     putEnv $ Environment (Just newEnclosing) values
 
-envAssign name value = do
-   env@(Environment enclosing values) <- gets environment
-   if' (Map.member (t_lexeme name) values)
-       (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
-       (maybe
-           (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
-           (\e -> putEnv e >> envAssign name value >> putAsNewChild env)
-           (enclosing))
+-- XXX: Unused
+-- envAssign :: Token -> Object -> Interpreter ()
+-- envAssign name value = do
+--    env@(Environment enclosing values) <- gets environment
+--    if' (Map.member (t_lexeme name) values)
+--        (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
+--        (maybe
+--            (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
+--            (\e -> putEnv e >> envAssign name value >> putAsNewChild env)
+--            (enclosing))
 
 
+globalAssign :: Token-> Object -> Interpreter ()
 globalAssign name value = do
    env@(Environment enclosing values) <- gets environment
    if' ((isNothing enclosing) && (Map.member (t_lexeme name) values))
@@ -206,6 +226,7 @@ globalAssign name value = do
            (\e -> putEnv e >> globalAssign name value >> putAsNewChild env)
            (enclosing))
 
+envDefine :: String -> Object -> Interpreter ()
 envDefine name value = gets environment >>= \(Environment enclosing values) -> putEnv $ Environment enclosing (Map.insert name value values)
 
 
