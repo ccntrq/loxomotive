@@ -29,8 +29,7 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    (res, _) <- runInterpreter initState (interpretStmts stmts)
-    print res
+    _ <- runInterpreter initState (interpretStmts stmts)
     return ()
 
 interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
@@ -56,7 +55,7 @@ interpretStmts [] = return ()
 interpretStmts (s:stmts) = execute s >> interpretStmts stmts
 
 execute :: Stmt -> Interpreter ()
-execute (Expression expr) = evaluate expr >>= liftIO . print >> return () -- TODO: remove print
+execute (Expression expr) = evaluate expr >> return ()
 
 execute (Var name value) = maybe (return Undefined)(evaluate)(value)>>= envDefine (t_lexeme name)
 
@@ -72,8 +71,18 @@ execute (If condition thenStmt elseStmt) =
         (execute thenStmt)
         (maybe (return ()) (execute) (elseStmt))
 
+execute (Block stmts) = executeBlock stmts
+
+executeBlock :: [Stmt] -> Interpreter ()
+executeBlock stmts= do
+  current <- gets environment
+  putEnv $ Environment (Just current) empty
+  mapM_ execute stmts
+  newEnv <- gets environment
+  putEnv $ fromJust (e_enclosing newEnv)
 
 evaluate :: Expr -> Interpreter Object
+
 -- WIP
 -- evaluate (Call calleeExpr par argExprs) = do
 --     callee <- evaluate calleeExpr
@@ -144,7 +153,6 @@ lookUpVariable name expr =
     (gets (environment) >>= envGet name) -- FIXME: should lookup in globals
     (\dist -> gets (environment) >>= envGetAt dist (t_lexeme name))
     (distanceLookup expr)
-
 
 distanceLookup :: Expr -> Interpreter (Maybe Int)
 distanceLookup expr = gets (locals) >>= return . (Map.lookup expr)
@@ -220,7 +228,7 @@ globalAssign :: Token-> Object -> Interpreter ()
 globalAssign name value = do
    env@(Environment enclosing values) <- gets environment
    if' ((isNothing enclosing) && (Map.member (t_lexeme name) values))
-       (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
+       (putEnv $ Environment Nothing (insert (t_lexeme name) value values))
        (maybe
            (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
            (\e -> putEnv e >> globalAssign name value >> putAsNewChild env)
@@ -228,7 +236,6 @@ globalAssign name value = do
 
 envDefine :: String -> Object -> Interpreter ()
 envDefine name value = gets environment >>= \(Environment enclosing values) -> putEnv $ Environment enclosing (Map.insert name value values)
-
 
 putEnv :: Environment -> Interpreter ()
 putEnv env = get >>= \s -> put s {environment = env}
