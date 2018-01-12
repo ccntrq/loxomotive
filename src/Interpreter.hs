@@ -49,7 +49,7 @@ execute (Expression expr) = evaluate expr >> return ()
 
 execute (Var name value) = maybe (return Undefined)(evaluate)(value)>>= envDefine (t_lexeme name)
 
-execute (Print expr) = evaluate expr >>= liftIO . print -- TODO: implement 'stringify'
+execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
 
 execute stmt@(While condition body) =
     ifM (liftM isTruthy (evaluate condition))
@@ -170,6 +170,13 @@ isTruthy _ = True
 unaryMinus :: Object -> Object
 unaryMinus (Number n) = Number (-n)
 unaryMinus _ = undefined
+
+--
+stringify :: Object -> String
+stringify (Undefined) = "nil"
+stringify (String s) = s
+stringify (Number n) = show n
+stringify (Bool b)  = show b
 
 -- Error reporting
 
