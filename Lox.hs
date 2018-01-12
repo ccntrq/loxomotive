@@ -2,12 +2,12 @@ module Lox where
 
 import Scanner
 import Parser
+import Resolver
 import Interpreter
 
 import System.IO
 import System.Environment
 import System.Exit
-
 
 main :: IO ()
 main = getArgs >>= dispatch
@@ -50,7 +50,8 @@ runSource' state src =
         (hasError)
         (\tokens -> either
              (hasError)
-             (\stmts -> interpret state stmts)
+             (\stmts -> resolve state stmts >>=
+             (either (hasError) (\state' -> interpret state' stmts)))
           (parse tokens))
     (scan src)
   where

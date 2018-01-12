@@ -1,4 +1,4 @@
-module Interpreter (interpret, initState, InterpreterState) where
+module Interpreter (interpret, initState, InterpreterState(..)) where
 
 import Environment
 import Expr
