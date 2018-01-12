@@ -42,20 +42,19 @@ execFile :: String -> IO ()
 execFile path = readFile path >>= \src -> runSource src >> exit
 
 runSource :: String -> IO ()
-runSource src =
-    case scan src of
-      Left e -> print e
-      Right ts -> case parseIt ts of
-          Left e -> print e
-          Right stmts -> interpret stmts
+runSource src = runSource' initState src >> return ()
 
 runSource' :: InterpreterState -> String -> IO InterpreterState
 runSource' state src =
-    case scan src of
-      Left e -> print e >> return state
-      Right ts -> case parseIt ts of
-          Left e -> print e >> return state
-          Right stmts -> interpret' state stmts
+    either
+        (hasError)
+        (\tokens -> either
+             (hasError)
+             (\stmts -> interpret state stmts)
+          (parse tokens))
+    (scan src)
+  where
+    hasError e = print e >> return state
 
 exit :: IO ()
 exit = exitWith ExitSuccess

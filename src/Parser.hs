@@ -1,4 +1,4 @@
-module Parser (parseIt) where
+module Parser (parse) where
 
 import Expr
 import Object
@@ -24,8 +24,8 @@ data ParserError = ParserError Token String
 
 type Parser a = ExceptT ParserError (StateT ParserState Identity) a
 
-parseIt :: [Token] -> Either ParserError [Stmt]
-parseIt ts = runParser (initState ts) parse
+parse :: [Token] -> Either ParserError [Stmt]
+parse ts = runParser (initState ts) parseIt
 
 runParser :: ParserState -> Parser a -> Either ParserError a
 runParser st p =
@@ -36,10 +36,10 @@ runParser st p =
 initState :: [Token] -> ParserState
 initState ts = ParserState ts 0 []
 
-parse :: Parser [Stmt]
-parse = parse' []
+parseIt :: Parser [Stmt]
+parseIt = parseIt' []
   where
-    parse' acc = ifM isAtEnd (return $ reverse acc) (declaration >>= \d -> parse' (d:acc))
+    parseIt' acc = ifM isAtEnd (return $ reverse acc) (declaration >>= \d -> parseIt' (d:acc))
 
 -- Statement parsing
 

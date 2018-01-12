@@ -1,4 +1,4 @@
-module Interpreter (interpret, interpret', initState, InterpreterState) where
+module Interpreter (interpret, initState, InterpreterState) where
 
 import Environment
 import Expr
@@ -18,8 +18,7 @@ import Data.Map.Strict as Map
 
 data InterpreterState
     = InterpreterState
-    { globals :: Environment
-    , environment :: Environment
+    { environment :: Environment
     , locals  :: Map.Map Expr Int -- to store the distance
     } deriving (Show)
 
@@ -27,26 +26,16 @@ data InterpreterError = InterpreterError Token String deriving (Show)
 
 type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
-interpret :: [Stmt] -> IO ()
-interpret stmts = do
-    (res, _) <- runInterpreter initState (interpretStmts stmts)
-    either (print) (\_ -> return ()) res
-    return ()
-
-interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
-interpret' st stmts = do
+interpret :: InterpreterState -> [Stmt] -> IO InterpreterState
+interpret st stmts = do
     (res, s) <- runInterpreter st (interpretStmts stmts)
-    print s
-    print res
-    case res of
-        Left e -> print e >> return st
-        _ -> return s
+    either (\e -> print e >> return st) (\_ -> return s) (res)
 
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a, InterpreterState)
 runInterpreter st i = runStateT (runExceptT i) st
 
 initState :: InterpreterState
-initState = InterpreterState mkGlobals mkGlobals Map.empty
+initState = InterpreterState mkGlobals Map.empty
 
 mkGlobals :: Environment
 mkGlobals = Environment Nothing $ fromList [("MAGIC_VAR", Number 42)]
