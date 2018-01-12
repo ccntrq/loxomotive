@@ -29,7 +29,8 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
 interpret :: [Stmt] -> IO ()
 interpret stmts = do
-    _ <- runInterpreter initState (interpretStmts stmts)
+    (res, _) <- runInterpreter initState (interpretStmts stmts)
+    either (print) (\_ -> return ()) res
     return ()
 
 interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
