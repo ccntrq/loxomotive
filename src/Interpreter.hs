@@ -140,8 +140,8 @@ evaluate _ = error "fuck"
 lookUpVariable :: Token -> Expr -> Interpreter Object
 lookUpVariable name expr =
     maybeM
-    (gets (environment) >>= envGet name) -- FIXME: should lookup in globals
-    (\dist -> gets (environment) >>= envGetAt dist (t_lexeme name))
+    (envGetGlobal name)
+    (\dist -> gets (environment) >>= envGetAt dist name)
     (distanceLookup expr)
 
 distanceLookup :: Expr -> Interpreter (Maybe Int)
@@ -186,17 +186,27 @@ runtimeError t msg = throwError $ InterpreterError t msg
 -- Environment
 
 envGet :: Token -> Environment -> Interpreter Object
-envGet name@(Token _ lexeme _ _) (Environment enclosing values) =
+envGet name@(Token _ lexeme _ _ _) (Environment enclosing values) =
     if' (Map.member lexeme values)
         (return $ Map.findWithDefault Undefined lexeme values)
         (maybe (runtimeError name ("Undefined variable '" ++ lexeme ++ "'.")) (envGet name) (enclosing))
 
--- doesn't bubble up enclosing environments and works outside the interpreter monad
-envGet' :: String -> Environment -> Object
-envGet' name (Environment _ values) = fromJust $ Map.lookup name values
+envGetAt :: Int -> Token -> Environment -> Interpreter Object
+envGetAt distance name env = do
+    let (Environment _ values) = (ancestor distance env)
+    maybe
+      (runtimeError name ("Undefined variable '" ++ t_lexeme name ++ "'."))
+      (return . id)
+      (Map.lookup (t_lexeme name) values)
 
-envGetAt :: Int -> String -> Environment -> Interpreter Object
-envGetAt distance name env = return $ envGet' name (ancestor distance env)
+envGetGlobal :: Token -> Interpreter Object
+envGetGlobal name = do
+   env@(Environment enclosing _) <- gets environment
+   if' (isNothing enclosing)
+       (envGet name env) -- global
+       (putEnv (fromJust enclosing) >> envGetGlobal name >>= \val -> putAsNewChild env >> return val)
+
+
 
 envAssignAt :: Int -> Token -> Object -> Interpreter ()
 envAssignAt 0 name value = do
