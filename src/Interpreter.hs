@@ -175,7 +175,12 @@ unaryMinus _ = undefined
 stringify :: Object -> String
 stringify (Undefined) = "nil"
 stringify (String s) = s
-stringify (Number n) = show n
+stringify (Number n) = removeTrailingDotZero (show n)
+  where
+    -- the java implemantation does the same to work around java double stringification
+    removeTrailingDotZero str
+        | length str > 2 = let (l:pl:xs) = reverse str in if' (l == '0' && pl == '.') (reverse xs) (str)
+        | otherwise = str
 stringify (Bool b)  = show b
 
 -- Error reporting
