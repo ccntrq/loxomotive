@@ -22,6 +22,7 @@ data ScannerState = ScannerState
   , line    :: Int
   , start   :: Int
   , current :: Int
+  , tokenID :: Int
   } deriving (Show)
 
 data ScannerError = ScannerError Int String deriving (Show)
@@ -35,7 +36,7 @@ runScanner :: ScannerState -> Scanner a -> Either ScannerError a
 runScanner st s = runIdentity $ evalStateT (runExceptT s) st
 
 initState :: String -> ScannerState
-initState src = ScannerState src [] 1 0 0
+initState src = ScannerState src [] 1 0 0 0
 
 keywords :: Map.Map String TokenType
 keywords = Map.fromList [ ("and",    AND)
@@ -146,15 +147,16 @@ scanComment = do
         else ignoreWhitespace
 
 ignoreWhitespace :: Scanner Token
-ignoreWhitespace = return $ Token WS "" Nothing 0 -- this token never gets added
+ignoreWhitespace = return $ Token WS "" Nothing 0 0-- this token never gets added
 
 addToken :: TokenType -> Scanner Token
 addToken t = do
     st <- get
     let lexeme = slice (start st) (current st) (source st)
     let literal = literalFromLexeme t lexeme
-    let token = Token t lexeme literal (line st)
-    put (st {tokens = token : (tokens st)})
+    let tid = tokenID st
+    let token = Token t lexeme literal (line st) tid
+    put (st {tokens = token : (tokens st), tokenID = tid +1})
     return token
   where
     literalFromLexeme :: TokenType -> String -> Maybe Object

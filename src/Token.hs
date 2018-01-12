@@ -8,4 +8,5 @@ data Token = Token
   , t_lexeme :: String
   , t_literal :: Maybe Object
   , t_line :: Int
+  , t_id :: Int -- Hack to make all tokens unique
   } deriving (Show, Eq, Ord)
