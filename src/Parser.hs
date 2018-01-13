@@ -143,7 +143,7 @@ function :: String -> Parser Stmt
 function kind = do
     name <- consume IDENTIFIER ("Expect " ++ kind ++ " name.")
     _ <- consume LEFT_PAREN ("Expect '(' after " ++ kind ++ " name.")
-    parameters <- paramLoop []
+    parameters <- ifM (check RIGHT_PAREN)(return [])(paramLoop [])
     _ <- consume RIGHT_PAREN "Expect ')' after parameters."
     _ <- consume LEFT_BRACE ("Expect '{' before " ++ kind ++ " body.")
     body <- block
