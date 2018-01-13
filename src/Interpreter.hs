@@ -76,35 +76,6 @@ execute (If condition thenStmt elseStmt) =
         (execute thenStmt)
         (maybe (return ()) (execute) (elseStmt))
 
-envAssign :: Token -> Object -> Env.Environment -> Interpreter ()
-envAssign token value env =
-    maybeM
-    (undefinedVariable token)
-    (\_ -> return ())
-    (liftIO (Env.assign (t_lexeme token) value env))
-
-envAssignAt :: Int -> Token -> Object -> Env.Environment -> Interpreter ()
-envAssignAt distance token value env =
-    liftIO (Env.assignAt distance (t_lexeme token) value env)
-
-envGet :: Token -> Env.Environment -> Interpreter Object
-envGet token env =
-    maybeM
-    (undefinedVariable token)
-    (return)
-    (liftIO (Env.get (t_lexeme token) env))
-
-envGetAt :: Int -> Token -> Env.Environment -> Interpreter Object
-envGetAt distance token env =  do
-    maybeM
-      (undefinedVariable token)
-      (return)
-      (liftIO (Env.getAt distance (t_lexeme token) env))
-
-
-undefinedVariable t = runtimeError t ("Undefined variable '" ++ t_lexeme t ++ "'.")
-
-
 
 evaluate :: Expr -> Interpreter Object
 
@@ -234,6 +205,36 @@ closeEnvironment = do
 -- Error reporting
 runtimeError :: Token -> String -> Interpreter a
 runtimeError t msg = throwError $ InterpreterError t msg
+
+-- Env
+
+envAssign :: Token -> Object -> Env.Environment -> Interpreter ()
+envAssign token value env =
+    maybeM
+    (undefinedVariable token)
+    (\_ -> return ())
+    (liftIO (Env.assign (t_lexeme token) value env))
+
+envAssignAt :: Int -> Token -> Object -> Env.Environment -> Interpreter ()
+envAssignAt distance token value env =
+    liftIO (Env.assignAt distance (t_lexeme token) value env)
+
+envGet :: Token -> Env.Environment -> Interpreter Object
+envGet token env =
+    maybeM
+    (undefinedVariable token)
+    (return)
+    (liftIO (Env.get (t_lexeme token) env))
+
+envGetAt :: Int -> Token -> Env.Environment -> Interpreter Object
+envGetAt distance token env =  do
+    maybeM
+      (undefinedVariable token)
+      (return)
+      (liftIO (Env.getAt distance (t_lexeme token) env))
+
+
+undefinedVariable t = runtimeError t ("Undefined variable '" ++ t_lexeme t ++ "'.")
 
 -- Debugging
 dumpEnv :: Interpreter ()
