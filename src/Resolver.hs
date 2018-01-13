@@ -3,7 +3,6 @@ module Resolver (resolve) where
 import Expr
 import Stmt
 import Token
-import Interpreter (InterpreterState(..))
 
 import Control.Monad.Except
 import Control.Monad.State
@@ -18,11 +17,12 @@ import qualified Data.Map.Strict as Map
 data ResolverState
     = ResolverState
     { scopes :: Stack Scope
-    , interpreterState  :: InterpreterState
+    , locals  :: Locals
     , currentFunction :: FunctionType
     , currentClass :: ClassType
     } deriving (Show)
 
+type Locals = Map.Map Expr Int
 
 data ResolverError = ResolverError Token String deriving (Show)
 type Scope = Map.Map String Bool
@@ -31,16 +31,16 @@ type Resolver a = ExceptT ResolverError (StateT ResolverState IO) a
 data FunctionType = FUN_NONE | FUNCTION | INITITIALIZER | METHOD deriving (Show, Eq)
 data ClassType = CLASS_NONE | CLASS | SUBCLASS deriving (Show, Eq)
 
-resolve :: InterpreterState -> [Stmt] -> IO (Either ResolverError InterpreterState)
-resolve i stmts = do
-    (res, s) <- runResolver (initState i) (resolveStmts stmts)
-    either (return . Left) (\_ -> return $ Right (interpreterState s)) (res)
+resolve :: Locals -> [Stmt] -> IO (Either ResolverError Locals)
+resolve l stmts = do
+    (res, s) <- runResolver (initState l) (resolveStmts stmts)
+    either (return . Left) (\_ -> return $ Right (locals s)) (res)
 
 runResolver :: ResolverState -> Resolver a -> IO (Either ResolverError a, ResolverState)
 runResolver st i = runStateT (runExceptT i) st
 
-initState :: InterpreterState -> ResolverState
-initState i = ResolverState stackNew i FUN_NONE CLASS_NONE
+initState :: Locals -> ResolverState
+initState l = ResolverState stackNew l FUN_NONE CLASS_NONE
 
 -- resolve Stmts
 
@@ -204,10 +204,8 @@ resolveLocal expr name =  resolveLocal' 0
     interpreterResolve :: Expr -> Int -> Resolver ()
     interpreterResolve exp' depth = do
         st <- get
-        let
-        put $ st {interpreterState = insertLocals (interpreterState st) exp' depth}
-    insertLocals :: InterpreterState -> Expr -> Int -> InterpreterState
-    insertLocals (InterpreterState e l) expr' depth = InterpreterState e (Map.insert expr' depth l)
+        locs <- gets locals
+        put $ st {locals = Map.insert exp' depth locs}
 
 
 setInScope :: String -> Bool -> Resolver ()

@@ -27,7 +27,8 @@ usage = version >> putStrLn "Usage: Lox [filename]"
 repl :: IO ()
 repl = do
   hSetBuffering stdout NoBuffering
-  repl' initState
+  s <- initState
+  repl' s
   where
     repl' state = do
         putStr "> "
@@ -42,16 +43,16 @@ execFile :: String -> IO ()
 execFile path = readFile path >>= \src -> runSource src >> exit
 
 runSource :: String -> IO ()
-runSource src = runSource' initState src >> return ()
+runSource src = initState >>= \s -> runSource' s src >> return ()
 
 runSource' :: InterpreterState -> String -> IO InterpreterState
-runSource' state src =
+runSource' state@(InterpreterState e g l) src =
     either
         (hasError)
         (\tokens -> either
              (hasError)
-             (\stmts -> resolve state stmts >>=
-             (either (hasError) (\state' -> interpret state' stmts)))
+             (\stmts -> resolve l stmts >>=
+             (either (hasError) (\l' -> interpret (InterpreterState e g l') stmts)))
           (parse tokens))
     (scan src)
   where

@@ -1,6 +1,6 @@
 module Interpreter (interpret, initState, InterpreterState(..)) where
 
-import Environment
+import qualified Environment as Env
 import Expr
 import Object
 import Stmt
@@ -15,12 +15,15 @@ import Control.Conditional  (if')
 import Data.Maybe
 
 import Data.Map.Strict as Map
+import Data.IORef
 
 data InterpreterState
     = InterpreterState
-    { environment :: Environment
+    { environment :: IORef Env.Environment
+    , global :: IORef Env.Environment
     , locals  :: Map.Map Expr Int -- to store the distance
-    } deriving (Show)
+    --, functionEnvironments :: Map.Map Object Environment -- try to store environments for functions here
+    }
 
 data InterpreterError = InterpreterError Token String deriving (Show)
 
@@ -34,21 +37,33 @@ interpret st stmts = do
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a, InterpreterState)
 runInterpreter st i = runStateT (runExceptT i) st
 
-initState :: InterpreterState
-initState = InterpreterState mkGlobals Map.empty
-
-mkGlobals :: Environment
-mkGlobals = Environment Nothing $ fromList [("MAGIC_VAR", Number 42)]
+initState :: IO InterpreterState
+initState = Env.mkEnv >>= newIORef >>= \env -> return $ InterpreterState env env Map.empty
 
 interpretStmts :: [Stmt] -> Interpreter ()
 interpretStmts [] = return ()
 interpretStmts (s:stmts) = execute s >> interpretStmts stmts
 
+executeBlock :: [Stmt] -> Interpreter ()
+executeBlock stmts= do
+    openEnvironment
+    mapM_ execute stmts
+    closeEnvironment
+
 execute :: Stmt -> Interpreter ()
+execute (Block stmts) = executeBlock stmts
+
 execute (Expression expr) = evaluate expr >> return ()
 
-execute (Var name value) = maybe (return Undefined)(evaluate)(value)>>= envDefine (t_lexeme name)
-
+execute (Var name value) = do
+    value <- maybe (return Undefined)(evaluate)(value)
+    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme name) value)
+--
+--execute stmt@(Function _ _ _) = do
+--     envs <- gets functionEnvironments
+--     env <- get
+--     envs' = insert stmt
+--
 execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
 
 execute stmt@(While condition body) =
@@ -61,15 +76,35 @@ execute (If condition thenStmt elseStmt) =
         (execute thenStmt)
         (maybe (return ()) (execute) (elseStmt))
 
-execute (Block stmts) = executeBlock stmts
+envAssign :: Token -> Object -> Env.Environment -> Interpreter ()
+envAssign token value env =
+    maybeM
+    (undefinedVariable token)
+    (\_ -> return ())
+    (liftIO (Env.assign (t_lexeme token) value env))
 
-executeBlock :: [Stmt] -> Interpreter ()
-executeBlock stmts= do
-  current <- gets environment
-  putEnv $ Environment (Just current) empty
-  mapM_ execute stmts
-  newEnv <- gets environment
-  putEnv $ fromJust (e_enclosing newEnv)
+envAssignAt :: Int -> Token -> Object -> Env.Environment -> Interpreter ()
+envAssignAt distance token value env =
+    liftIO (Env.assignAt distance (t_lexeme token) value env)
+
+envGet :: Token -> Env.Environment -> Interpreter Object
+envGet token env =
+    maybeM
+    (undefinedVariable token)
+    (return)
+    (liftIO (Env.get (t_lexeme token) env))
+
+envGetAt :: Int -> Token -> Env.Environment -> Interpreter Object
+envGetAt distance token env =  do
+    maybeM
+      (undefinedVariable token)
+      (return)
+      (liftIO (Env.getAt distance (t_lexeme token) env))
+
+
+undefinedVariable t = runtimeError t ("Undefined variable '" ++ t_lexeme t ++ "'.")
+
+
 
 evaluate :: Expr -> Interpreter Object
 
@@ -81,8 +116,8 @@ evaluate :: Expr -> Interpreter Object
 evaluate expr@(Assign name valueExpr) = do
     value <- evaluate valueExpr
     maybeM
-        (globalAssign name value)
-        (\dist -> envAssignAt dist name value)
+        (gets global >>= liftIO . readIORef >>= envAssign name value)
+        (\dist -> gets environment >>= liftIO . readIORef >>= envAssignAt dist name value)
         (distanceLookup expr)
     return value
 
@@ -140,8 +175,8 @@ evaluate _ = error "fuck"
 lookUpVariable :: Token -> Expr -> Interpreter Object
 lookUpVariable name expr =
     maybeM
-    (envGetGlobal name)
-    (\dist -> gets (environment) >>= envGetAt dist name)
+    (gets global >>= liftIO . readIORef >>= envGet name)
+    (\dist -> gets (environment) >>= liftIO . readIORef >>= envGetAt dist name)
     (distanceLookup expr)
 
 distanceLookup :: Expr -> Interpreter (Maybe Int)
@@ -171,7 +206,6 @@ unaryMinus :: Object -> Object
 unaryMinus (Number n) = Number (-n)
 unaryMinus _ = undefined
 
---
 stringify :: Object -> String
 stringify (Undefined) = "nil"
 stringify (String s) = s
@@ -183,78 +217,21 @@ stringify (Number n) = removeTrailingDotZero (show n)
         | otherwise = str
 stringify (Bool b)  = show b
 
--- Error reporting
+putEnv :: Env.Environment -> Interpreter ()
+putEnv env = gets environment >>= \envRef -> liftIO  (writeIORef envRef env)
 
+openEnvironment :: Interpreter ()
+openEnvironment = do
+    current <- gets environment >>= liftIO . readIORef
+    liftIO (Env.mkChildEnv current) >>= putEnv
+
+closeEnvironment :: Interpreter ()
+closeEnvironment = do
+    (Env.Environment enc _) <- gets environment >>= liftIO . readIORef
+    enc' <- liftIO $ readIORef enc
+    putEnv (fromJust enc')
+
+-- Error reporting
 runtimeError :: Token -> String -> Interpreter a
 runtimeError t msg = throwError $ InterpreterError t msg
 
--- Environment
-
-envGet :: Token -> Environment -> Interpreter Object
-envGet name@(Token _ lexeme _ _ _) (Environment enclosing values) =
-    if' (Map.member lexeme values)
-        (return $ Map.findWithDefault Undefined lexeme values)
-        (maybe (runtimeError name ("Undefined variable '" ++ lexeme ++ "'.")) (envGet name) (enclosing))
-
-envGetAt :: Int -> Token -> Environment -> Interpreter Object
-envGetAt distance name env = do
-    let (Environment _ values) = (ancestor distance env)
-    maybe
-      (runtimeError name ("Undefined variable '" ++ t_lexeme name ++ "'."))
-      (return . id)
-      (Map.lookup (t_lexeme name) values)
-
-envGetGlobal :: Token -> Interpreter Object
-envGetGlobal name = do
-   env@(Environment enclosing _) <- gets environment
-   if' (isNothing enclosing)
-       (envGet name env) -- global
-       (putEnv (fromJust enclosing) >> envGetGlobal name >>= \val -> putAsNewChild env >> return val)
-
-
-
-envAssignAt :: Int -> Token -> Object -> Interpreter ()
-envAssignAt 0 name value = do
-    (Environment enclosing values) <- gets environment
-    putEnv $ Environment enclosing (insert (t_lexeme name) value values)
-envAssignAt distance name value = do
-    (Environment enclosing values) <- gets environment
-    putEnv $ fromJust enclosing
-    envAssignAt (distance - 1) name value
-    newEnclosing <- gets environment
-    putEnv $ Environment (Just newEnclosing) values
-
--- XXX: Unused
--- envAssign :: Token -> Object -> Interpreter ()
--- envAssign name value = do
---    env@(Environment enclosing values) <- gets environment
---    if' (Map.member (t_lexeme name) values)
---        (putEnv $ Environment enclosing (insert (t_lexeme name) value values))
---        (maybe
---            (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
---            (\e -> putEnv e >> envAssign name value >> putAsNewChild env)
---            (enclosing))
-
-
-globalAssign :: Token-> Object -> Interpreter ()
-globalAssign name value = do
-   env@(Environment enclosing values) <- gets environment
-   if' ((isNothing enclosing) && (Map.member (t_lexeme name) values))
-       (putEnv $ Environment Nothing (insert (t_lexeme name) value values))
-       (maybe
-           (runtimeError name $ "Undefined variable '" ++  t_lexeme name ++ "'.")
-           (\e -> putEnv e >> globalAssign name value >> putAsNewChild env)
-           (enclosing))
-
-envDefine :: String -> Object -> Interpreter ()
-envDefine name value = gets environment >>= \(Environment enclosing values) -> putEnv $ Environment enclosing (Map.insert name value values)
-
-putEnv :: Environment -> Interpreter ()
-putEnv env = get >>= \s -> put s {environment = env}
-
-putAsNewChild :: Environment -> Interpreter ()
-putAsNewChild (Environment _ values) = get >>= \s -> put s {environment = Environment (Just $ environment s) values}
-
-ancestor :: Int -> Environment -> Environment
-ancestor 0 env = env
-ancestor x (Environment enclosing _) = ancestor (x-1) (fromJust enclosing)
