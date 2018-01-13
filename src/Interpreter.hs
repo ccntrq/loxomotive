@@ -123,32 +123,6 @@ evaluate expr@(Assign name valueExpr) = do
         (distanceLookup expr)
     return value
 
-evaluate (Call calleeExpr par argExprs) = do
-    callee <- evaluate calleeExpr
-    args <- mapM evaluate argExprs
-    case callee of
-        fn@(Fn _ _) -> call fn args par
-        _ -> runtimeError par "Can only call functions" -- XXX "and classes."
-
-
-
-evaluate (Grouping e) = evaluate e
-evaluate (Literal object) = return object
-
-evaluate (Unary operator r) =  do
-    right <- evaluate r
-    case t_type operator of
-        BANG -> return $ (Bool . not . isTruthy) right
-        MINUS -> checkNumberOperand operator right >> (return $ unaryMinus right)
-        _ -> undefined
-
-evaluate (Logical l operator r) = do
-    left <- evaluate l
-    case t_type operator of
-        OR -> if' (isTruthy left) (return left) (evaluate r)
-        AND -> if' (not $ isTruthy left )(return left)(evaluate r)
-        _ -> undefined
-
 evaluate (Binary l operator r) = do
     left <- evaluate l
     right <- evaluate r
@@ -169,6 +143,25 @@ evaluate (Binary l operator r) = do
     plus _ (String a) (String b) = return $ String (a ++ b)
     plus optoken _ _ = runtimeError optoken "Operands must be two numbers or two strings"
 
+evaluate (Call calleeExpr par argExprs) = do
+    callee <- evaluate calleeExpr
+    args <- mapM evaluate argExprs
+    case callee of
+        fn@(Fn _ _) -> call fn args par
+        cl@(LoxClass _ _ _) -> call cl args par
+        _ -> runtimeError par "Can only call functions and classes."
+
+evaluate (Grouping e) = evaluate e
+
+evaluate (Literal object) = return object
+
+evaluate (Logical l operator r) = do
+    left <- evaluate l
+    case t_type operator of
+        OR -> if' (isTruthy left) (return left) (evaluate r)
+        AND -> if' (not $ isTruthy left )(return left)(evaluate r)
+        _ -> undefined
+
 -- WIP
 -- evaluate expr@(Super keyword methodname) = do
 --      distance <- liftM fromJust (distanceLookup expr)
@@ -177,6 +170,13 @@ evaluate (Binary l operator r) = do
 --      method <- findMethod superclass object (t_lexeme methodname)
 
 evaluate expr@(This keyword) = lookUpVariable keyword expr
+
+evaluate (Unary operator r) =  do
+    right <- evaluate r
+    case t_type operator of
+        BANG -> return $ (Bool . not . isTruthy) right
+        MINUS -> checkNumberOperand operator right >> (return $ unaryMinus right)
+        _ -> undefined
 
 evaluate expr@(Variable name) = lookUpVariable name expr
 
