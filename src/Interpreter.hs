@@ -22,7 +22,7 @@ data InterpreterState
     { environment :: IORef Env.Environment
     , global :: IORef Env.Environment
     , locals  :: Map.Map Expr Int -- to store the distance
-    --, functionEnvironments :: Map.Map Object Environment -- try to store environments for functions here
+    , functionEnvironments :: Map.Map Object (Env.Environment, Stmt) -- try to store environments for functions here
     }
 
 data InterpreterError = InterpreterError Token String deriving (Show)
@@ -38,52 +38,58 @@ runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterErr
 runInterpreter st i = runStateT (runExceptT i) st
 
 initState :: IO InterpreterState
-initState = Env.mkEnv >>= newIORef >>= \env -> return $ InterpreterState env env Map.empty
+initState = Env.mkEnv >>= newIORef >>= \env -> return $ InterpreterState env env Map.empty Map.empty
 
 interpretStmts :: [Stmt] -> Interpreter ()
 interpretStmts [] = return ()
 interpretStmts (s:stmts) = execute s >> interpretStmts stmts
 
-executeBlock :: [Stmt] -> Interpreter ()
-executeBlock stmts= do
-    openEnvironment
+executeBlock :: [Stmt] -> Env.Environment -> Interpreter ()
+executeBlock stmts env = do
+    previous <- gets environment >>= liftIO . readIORef
+    putEnv env
     mapM_ execute stmts
-    closeEnvironment
+    putEnv previous
 
 execute :: Stmt -> Interpreter ()
-execute (Block stmts) = executeBlock stmts
+execute (Block stmts) = do
+    current <- gets environment >>= liftIO . readIORef
+    blockEnv <- liftIO (Env.mkChildEnv current)
+    executeBlock stmts blockEnv
+
 
 execute (Expression expr) = evaluate expr >> return ()
 
-execute (Var name value) = do
-    value <- maybe (return Undefined)(evaluate)(value)
-    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme name) value)
---
---execute stmt@(Function _ _ _) = do
---     envs <- gets functionEnvironments
---     env <- get
---     envs' = insert stmt
---
-execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
-
-execute stmt@(While condition body) =
-    ifM (liftM isTruthy (evaluate condition))
-        (execute body >> execute stmt)
-        (return ())
+execute stmt@(Function name _ _) = do
+     st <- get
+     fnEnvs <- gets functionEnvironments
+     env <- gets environment >>= liftIO . readIORef
+     let fun = Fn (t_id name) False --  Hack: does this work? store the tokenid in the function object.
+     let fnEnvs' = Map.insert fun (env, stmt) fnEnvs
+     put $ st { functionEnvironments = fnEnvs' }
+     envDefine name fun
 
 execute (If condition thenStmt elseStmt) =
     ifM (liftM isTruthy (evaluate condition))
         (execute thenStmt)
         (maybe (return ()) (execute) (elseStmt))
 
+execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
+
+-- execute (Return value) = maybe (return Undefined) evaluate value >>= retur -- XXX: throw Exception; catch in call
+
+execute (Var name value) = do
+    value <- maybe (return Undefined)(evaluate)(value)
+    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme name) value)
+
+execute stmt@(While condition body) =
+    ifM (liftM isTruthy (evaluate condition))
+        (execute body >> execute stmt)
+        (return ())
+
+
 
 evaluate :: Expr -> Interpreter Object
-
--- WIP
--- evaluate (Call calleeExpr par argExprs) = do
---     callee <- evaluate calleeExpr
---     args <- mapM evaluate argExprs
-
 evaluate expr@(Assign name valueExpr) = do
     value <- evaluate valueExpr
     maybeM
@@ -91,6 +97,15 @@ evaluate expr@(Assign name valueExpr) = do
         (\dist -> gets environment >>= liftIO . readIORef >>= envAssignAt dist name value)
         (distanceLookup expr)
     return value
+
+evaluate (Call calleeExpr par argExprs) = do
+    callee <- evaluate calleeExpr
+    args <- mapM evaluate argExprs
+    case callee of
+        fn@(Fn _ _) -> call fn args par
+        _ -> runtimeError par "Can only call functions" -- XXX "and classes."
+
+
 
 evaluate (Grouping e) = evaluate e
 evaluate (Literal object) = return object
@@ -140,7 +155,22 @@ evaluate expr@(This keyword) = lookUpVariable keyword expr
 
 evaluate expr@(Variable name) = lookUpVariable name expr
 
-evaluate _ = error "fuck"
+
+call :: Object -> [Object] -> Token -> Interpreter Object
+call fn@(Fn _ _) args paren = do
+    fnEnvs <- gets functionEnvironments
+    (closure, (Function name params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
+    environment <- liftIO (Env.mkChildEnv closure)
+    if' (checkArity params args)
+        (devineArgs environment params args >> executeBlock body environment >> return (Number 1)) -- TODO: catch Return value
+        (runtimeError paren "Wrong number of args") -- TODO: fix error msg
+  where
+    checkArity ps as = length as == length ps
+    devineArgs c ps as = mapM_ (\(p,a) ->  liftIO (Env.define (t_lexeme p) a c)) (zip ps as)
+
+
+
+
 
 -- WIP
 lookUpVariable :: Token -> Expr -> Interpreter Object
@@ -191,22 +221,15 @@ stringify (Bool b)  = show b
 putEnv :: Env.Environment -> Interpreter ()
 putEnv env = gets environment >>= \envRef -> liftIO  (writeIORef envRef env)
 
-openEnvironment :: Interpreter ()
-openEnvironment = do
-    current <- gets environment >>= liftIO . readIORef
-    liftIO (Env.mkChildEnv current) >>= putEnv
-
-closeEnvironment :: Interpreter ()
-closeEnvironment = do
-    (Env.Environment enc _) <- gets environment >>= liftIO . readIORef
-    enc' <- liftIO $ readIORef enc
-    putEnv (fromJust enc')
-
 -- Error reporting
 runtimeError :: Token -> String -> Interpreter a
 runtimeError t msg = throwError $ InterpreterError t msg
 
 -- Env
+
+envDefine :: Token -> Object -> Interpreter ()
+envDefine token value =
+    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme token) value)
 
 envAssign :: Token -> Object -> Env.Environment -> Interpreter ()
 envAssign token value env =

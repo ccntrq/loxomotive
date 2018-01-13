@@ -46,13 +46,13 @@ runSource :: String -> IO ()
 runSource src = initState >>= \s -> runSource' s src >> return ()
 
 runSource' :: InterpreterState -> String -> IO InterpreterState
-runSource' state@(InterpreterState e g l) src =
+runSource' state@(InterpreterState e g l f) src =
     either
         (hasError)
         (\tokens -> either
              (hasError)
              (\stmts -> resolve l stmts >>=
-             (either (hasError) (\l' -> interpret (InterpreterState e g l') stmts)))
+             (either (hasError) (\l' -> interpret (InterpreterState e g l' f) stmts)))
           (parse tokens))
     (scan src)
   where

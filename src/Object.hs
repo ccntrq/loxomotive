@@ -5,4 +5,5 @@ data Object
     | String String
     | Bool Bool
     | Undefined
+    | Fn Int Bool -- tokenId and isInitializer
     deriving (Show, Eq, Ord)
