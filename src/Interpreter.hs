@@ -25,7 +25,8 @@ data InterpreterState
     , functionEnvironments :: Map.Map Object (Env.Environment, Stmt) -- try to store environments for functions here
     }
 
-data InterpreterError = InterpreterError Token String deriving (Show)
+data InterpreterError = InterpreterError Token String
+                      | ReturnException Object deriving (Show)
 
 type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
@@ -48,7 +49,7 @@ executeBlock :: [Stmt] -> Env.Environment -> Interpreter ()
 executeBlock stmts env = do
     previous <- gets environment >>= liftIO . readIORef
     putEnv env
-    mapM_ execute stmts
+    (mapM_ execute stmts) `catchError` (\e -> putEnv previous >> throwError e)
     putEnv previous
 
 execute :: Stmt -> Interpreter ()
@@ -76,7 +77,7 @@ execute (If condition thenStmt elseStmt) =
 
 execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
 
--- execute (Return value) = maybe (return Undefined) evaluate value >>= retur -- XXX: throw Exception; catch in call
+execute (Return _ value) = maybe (return Undefined) evaluate value >>= throwError . ReturnException
 
 execute (Var name value) = do
     value <- maybe (return Undefined)(evaluate)(value)
@@ -86,8 +87,6 @@ execute stmt@(While condition body) =
     ifM (liftM isTruthy (evaluate condition))
         (execute body >> execute stmt)
         (return ())
-
-
 
 evaluate :: Expr -> Interpreter Object
 evaluate expr@(Assign name valueExpr) = do
@@ -162,17 +161,18 @@ call fn@(Fn _ _) args paren = do
     (closure, (Function name params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
     environment <- liftIO (Env.mkChildEnv closure)
     if' (checkArity params args)
-        (devineArgs environment params args >> executeBlock body environment >> return (Number 1)) -- TODO: catch Return value
+        (devineArgs environment params args >> executeCall body environment)
         (runtimeError paren "Wrong number of args") -- TODO: fix error msg
   where
     checkArity ps as = length as == length ps
     devineArgs c ps as = mapM_ (\(p,a) ->  liftIO (Env.define (t_lexeme p) a c)) (zip ps as)
+    executeCall b e =
+        do { executeBlock b e; return Undefined }
+           `catchError`
+           (\e -> case e of
+               (ReturnException object) -> return object
+               _ -> throwError e)
 
-
-
-
-
--- WIP
 lookUpVariable :: Token -> Expr -> Interpreter Object
 lookUpVariable name expr =
     maybeM
