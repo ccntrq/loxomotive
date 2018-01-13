@@ -58,6 +58,32 @@ execute (Block stmts) = do
     blockEnv <- liftIO (Env.mkChildEnv current)
     executeBlock stmts blockEnv
 
+execute (Class name superclassExpr methods) = do
+    envDefine (t_lexeme name) Undefined
+    superclass <- maybe (return Nothing) (evalSuperclass) superclassExpr
+    methodMap <- foldM evalMethod Map.empty methods
+    maybe (return ()) (\_ -> gets environment >>= liftIO . readIORef >>= \env -> liftIO (readIORef (Env.e_enclosing env)) >>= putEnv . fromJust) (superclass)
+    gets environment >>= liftIO . readIORef >>= (envAssign name $ LoxClass (t_lexeme name) (superclass) (methodMap))
+  where
+    evalSuperclass sc = do
+        superclass <- evaluate sc
+        case superclass of
+            (LoxClass _ _ _) -> do
+                current <- gets environment >>= liftIO . readIORef
+                newEnv <- liftIO (Env.mkChildEnv current)
+                putEnv newEnv
+                envDefine "super" superclass
+                return $ Just superclass
+            _ -> runtimeError name "Superclass must be a class."
+    evalMethod :: Map.Map String Object -> Stmt -> Interpreter (Map.Map String Object)
+    evalMethod acc m@(Function n _ _) = do
+       st <- get
+       fnEnvs <- gets functionEnvironments
+       env <- gets environment >>= liftIO . readIORef
+       let fun = Fn (t_id n) (t_lexeme n == "init") --  Hack: does this work? store the tokenid in the function object.
+       let fnEnvs' = Map.insert fun (env, m) fnEnvs
+       put $ st { functionEnvironments = fnEnvs' }
+       return $ Map.insert (t_lexeme n) fun acc
 
 execute (Expression expr) = evaluate expr >> return ()
 
@@ -68,7 +94,7 @@ execute stmt@(Function name _ _) = do
      let fun = Fn (t_id name) False --  Hack: does this work? store the tokenid in the function object.
      let fnEnvs' = Map.insert fun (env, stmt) fnEnvs
      put $ st { functionEnvironments = fnEnvs' }
-     envDefine name fun
+     envDefine (t_lexeme name) fun
 
 execute (If condition thenStmt elseStmt) =
     ifM (liftM isTruthy (evaluate condition))
@@ -227,9 +253,9 @@ runtimeError t msg = throwError $ InterpreterError t msg
 
 -- Env
 
-envDefine :: Token -> Object -> Interpreter ()
-envDefine token value =
-    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme token) value)
+envDefine :: String -> Object -> Interpreter ()
+envDefine name value =
+    gets environment >>= liftIO . readIORef >>= liftIO . (Env.define name value)
 
 envAssign :: Token -> Object -> Env.Environment -> Interpreter ()
 envAssign token value env =
