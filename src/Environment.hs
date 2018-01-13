@@ -61,3 +61,18 @@ getAt distance name env = ancestor distance env >>= get name
 
 assignAt :: Int -> String -> Object -> Environment -> IO ()
 assignAt distance name value env  = ancestor distance env >>= define name value
+
+-- Debugging
+
+dump :: Environment -> IO ()
+dump env = dump' 0 env >> return ()
+
+dump' :: Int -> Environment -> IO Int
+dump' depth env = do
+    values <- readIORef (e_values env)
+    enclosing <- readIORef (e_enclosing env)
+    depth' <- maybe (return 0) (dump' (depth +1)) enclosing
+    let indent = take (depth'*4) $ repeat ' '
+    putStr indent
+    print values
+    return (depth'+1)

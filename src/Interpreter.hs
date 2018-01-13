@@ -235,3 +235,6 @@ closeEnvironment = do
 runtimeError :: Token -> String -> Interpreter a
 runtimeError t msg = throwError $ InterpreterError t msg
 
+-- Debugging
+dumpEnv :: Interpreter ()
+dumpEnv =gets environment >>= liftIO . readIORef >>= liftIO . Env.dump
