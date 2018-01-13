@@ -61,7 +61,6 @@ resolveStmt (Class name superclass methods) = do
     beginScope
     setInScope "this" True
     mapM_ resolveMethod methods
-    endScope
     maybe
       (endScope)
       (\_ -> endScope >> endScope)
