@@ -46,17 +46,17 @@ runSource :: String -> IO ()
 runSource src = initState >>= \s -> runSource' s src >> return ()
 
 runSource' :: InterpreterState -> String -> IO InterpreterState
-runSource' state@(InterpreterState e g l f) src =
+runSource' st src =
     either
         (hasError)
         (\tokens -> either
              (hasError)
-             (\stmts -> resolve l stmts >>=
-             (either (hasError) (\l' -> interpret (InterpreterState e g l' f) stmts)))
+             (\stmts -> resolve (locals st) stmts >>=
+             (either (hasError) (\locals' -> interpret (st {locals = locals'}) stmts)))
           (parse tokens))
     (scan src)
   where
-    hasError e = print e >> return state
+    hasError e = print e >> return st
 
 exit :: IO ()
 exit = exitWith ExitSuccess

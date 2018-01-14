@@ -22,7 +22,9 @@ data InterpreterState
     { environment :: IORef Env.Environment
     , global :: IORef Env.Environment
     , locals  :: Map.Map Expr Int -- to store the distance
-    , functionEnvironments :: Map.Map Object (Env.Environment, Stmt) -- try to store environments for functions here
+    , functionEnvironments :: Map.Map Object (Env.Environment, Stmt)
+    , instanceFields :: Map.Map Object (Map.Map String Object)
+    , nextInstanceId :: Int
     }
 
 data InterpreterError = InterpreterError Token String
@@ -39,7 +41,7 @@ runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterErr
 runInterpreter st i = runStateT (runExceptT i) st
 
 initState :: IO InterpreterState
-initState = Env.mkEnv >>= newIORef >>= \env -> return $ InterpreterState env env Map.empty Map.empty
+initState = Env.mkEnv >>= newIORef >>= \env -> return $ InterpreterState env env Map.empty Map.empty Map.empty 1
 
 interpretStmts :: [Stmt] -> Interpreter ()
 interpretStmts [] = return ()
@@ -80,7 +82,7 @@ execute (Class name superclassExpr methods) = do
        st <- get
        fnEnvs <- gets functionEnvironments
        env <- gets environment >>= liftIO . readIORef
-       let fun = Fn (t_id n) (t_lexeme n == "init") --  Hack: does this work? store the tokenid in the function object.
+       let fun = Fn (t_id n) 0 (t_lexeme n == "init") --  Hack: does this work? store the tokenid in the function object.
        let fnEnvs' = Map.insert fun (env, m) fnEnvs
        put $ st { functionEnvironments = fnEnvs' }
        return $ Map.insert (t_lexeme n) fun acc
@@ -91,7 +93,9 @@ execute stmt@(Function name _ _) = do
      st <- get
      fnEnvs <- gets functionEnvironments
      env <- gets environment >>= liftIO . readIORef
-     let fun = Fn (t_id name) False --  Hack: does this work? store the tokenid in the function object.
+     --  Hack: does this work? store the tokenid in the function object.
+     --  also set the binding id to 0
+     let fun = Fn (t_id name) 0 False
      let fnEnvs' = Map.insert fun (env, stmt) fnEnvs
      put $ st { functionEnvironments = fnEnvs' }
      envDefine (t_lexeme name) fun
@@ -147,9 +151,15 @@ evaluate (Call calleeExpr par argExprs) = do
     callee <- evaluate calleeExpr
     args <- mapM evaluate argExprs
     case callee of
-        fn@(Fn _ _) -> call fn args par
+        fn@(Fn _ _ _) -> call fn args par
         cl@(LoxClass _ _ _) -> call cl args par
-        _ -> runtimeError par "Can only call functions and classes."
+        x -> runtimeError par "Can only call functions and classes."
+
+evaluate (Get objectExpr name) = do
+    object <- evaluate objectExpr
+    case object of
+        ini@(LoxInstance _ _) -> instanceGet ini name
+        _ -> runtimeError name "Only instances have properties."
 
 evaluate (Grouping e) = evaluate e
 
@@ -161,6 +171,13 @@ evaluate (Logical l operator r) = do
         OR -> if' (isTruthy left) (return left) (evaluate r)
         AND -> if' (not $ isTruthy left )(return left)(evaluate r)
         _ -> undefined
+
+evaluate (Set objectExpr name valueExpr) = do
+    object <- evaluate objectExpr
+    case object of
+        ini@(LoxInstance _ _) -> evaluate valueExpr >>= instanceSet ini name
+        _ -> runtimeError name "Only instances have fields."
+
 
 -- WIP
 -- evaluate expr@(Super keyword methodname) = do
@@ -182,7 +199,7 @@ evaluate expr@(Variable name) = lookUpVariable name expr
 
 
 call :: Object -> [Object] -> Token -> Interpreter Object
-call fn@(Fn _ _) args paren = do
+call fn@(Fn _ _ _) args paren = do
     fnEnvs <- gets functionEnvironments
     (closure, (Function name params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
     environment <- liftIO (Env.mkChildEnv closure)
@@ -198,6 +215,80 @@ call fn@(Fn _ _) args paren = do
            (\e -> case e of
                (ReturnException object) -> return object
                _ -> throwError e)
+
+call cl@(LoxClass n sc methods) args paren = do
+    if' (checkArity)
+        (return ())
+        (runtimeError paren "Wrong number of args") -- TODO: fix error msg
+    ini <- mkInstance cl
+    maybe
+      (return ())
+      (\fn  -> bind fn ini >>= \init' -> call init' args paren >> return ())
+      (Map.lookup "init" methods)
+
+    return ini
+  where
+    checkArity =  True -- TODO: implement me. add arity to fns
+
+mkInstance :: Object -> Interpreter Object
+mkInstance cls = do
+   instanceId <- getNextInstanceId
+   let ini = LoxInstance instanceId cls
+   st <- get
+   let instanceFields' = Map.insert ini Map.empty (instanceFields st)
+   put st {instanceFields = instanceFields'}
+   return ini
+
+getNextInstanceId :: Interpreter Int
+getNextInstanceId = do
+    st <- get
+    let id = nextInstanceId st
+    put st {nextInstanceId = id + 1}
+    return id
+
+bind :: Object -> Object -> Interpreter Object
+bind fn@(Fn tokenId _ isInitializer) ini@(LoxInstance instanceId _) = do
+    fnEnvs <- gets functionEnvironments
+    st <- get
+    let (closure, def) = fromJust $ Map.lookup fn fnEnvs
+    newEnv <- liftIO (Env.mkChildEnv closure)
+    liftIO $ Env.define "this" ini newEnv
+    let newFn = Fn tokenId instanceId isInitializer
+    let fnEnvs' = Map.insert newFn (newEnv, def) fnEnvs
+    put $ st { functionEnvironments = fnEnvs'}
+    return newFn
+    -- TODO use existing binding if exists?
+
+findMethod :: Object -> String -> Object -> Interpreter (Maybe Object)
+findMethod ini name clss  = do
+    case clss of
+        (LoxClass _ sc values) -> maybe
+            (maybe (return Nothing) (findMethod ini name) sc)
+            (\m -> bind m ini >>= return . Just)
+            (Map.lookup name values)
+
+instanceSet :: Object -> Token -> Object -> Interpreter Object
+instanceSet ini@(LoxInstance instanceId clss) name value = do
+    values <- getInstanceFields ini
+    let values' = Map.insert (t_lexeme name) value values
+    setInstanceFields ini values'
+    return value
+
+instanceGet :: Object -> Token -> Interpreter Object
+instanceGet ini@(LoxInstance instanceId clss) name =
+    maybeM
+    (maybeM
+      (runtimeError  name $ "Undefined property '" ++ (t_lexeme name) ++ "'.")
+      (return)
+      (findMethod ini (t_lexeme name) clss))
+    (return)
+    (getInstanceFields ini >>= return . (Map.lookup (t_lexeme name)))
+
+getInstanceFields :: Object -> Interpreter (Map.Map String Object)
+getInstanceFields ini = gets instanceFields >>= return . fromJust . (Map.lookup ini)
+
+setInstanceFields :: Object -> (Map.Map String Object) -> Interpreter ()
+setInstanceFields ini values = get >>= \st -> put st {instanceFields = Map.insert ini values (instanceFields st)}
 
 lookUpVariable :: Token -> Expr -> Interpreter Object
 lookUpVariable name expr =
@@ -243,6 +334,7 @@ stringify (Number n) = removeTrailingDotZero (show n)
         | length str > 2 = let (l:pl:xs) = reverse str in if' (l == '0' && pl == '.') (reverse xs) (str)
         | otherwise = str
 stringify (Bool b)  = show b
+stringify (LoxInstance _ (LoxClass name _ _) ) = name ++ " instance"
 
 putEnv :: Env.Environment -> Interpreter ()
 putEnv env = gets environment >>= \envRef -> liftIO  (writeIORef envRef env)
