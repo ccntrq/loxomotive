@@ -1,0 +1,54 @@
+{
+    var a = "variables work!";
+    print a;
+    if (true) print "if works!";
+
+    if (false) ups; // should crash
+    else print "else works!";
+
+}
+{
+    // loops
+    var i = 0;
+    while (i < 1) {
+        print "while works!";
+        i = i + 1;
+    }
+
+    var counter = 0;
+    for(var j = 1; j <= 10; j = j + 1) {
+        counter = counter + j;
+    }
+
+    if (counter == 55) print "for works!";
+    else ups; // should crash
+}
+
+{
+    // functions
+    fun sum (a,b) {
+        return a + b;
+    }
+    if (sum (1,2) == 3) print "functions work!";
+    else ups; // should crash
+}
+
+{
+    // classes
+    class TestClass {
+        init (testValue, printIt){
+            this.testValue = testValue;
+            if (printIt) print "initializers work!";
+        }
+
+        testMethod() {
+            print "methods work!";
+        }
+    }
+    var testInstance = TestClass("first instance", true);
+    testInstance.testMethod();
+
+    var testInstance2 = TestClass("second instance", false);
+    if (testInstance.testValue != testInstance2.testValue) print "instances work!";
+    else ups; // should crash
+}
