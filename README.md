@@ -26,7 +26,7 @@ I got sidetracked with my [first](https://github.com/ccntrq/plox) two attemtpts
 at implementing this interpreter while waiting for the book to finish.
 Since this is my third time I didn't want to re-read the book again. This time
 I decided to just look at the Java sources and translate them to haskell as
-close as possible. I might refactor from of this later.
+close as possible. I might refactor some of this later.
 
 
 ## Usage
