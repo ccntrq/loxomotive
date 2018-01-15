@@ -21,7 +21,7 @@ data InterpreterState
     = InterpreterState
     { environment :: IORef Env.Environment
     , global :: IORef Env.Environment
-    , locals  :: Map.Map Expr Int -- to store the distance
+    , locals  :: Map.Map Expr Int -- the resolver stores the distances here
     , functionEnvironments :: Map.Map Object (Env.Environment, Stmt)
     , instanceFields :: Map.Map Object (Map.Map String Object)
     , nextInstanceId :: Int
@@ -78,24 +78,22 @@ execute (Class name superclassExpr methods) = do
                 return $ Just superclass
             _ -> runtimeError name "Superclass must be a class."
     evalMethod :: Map.Map String Object -> Stmt -> Interpreter (Map.Map String Object)
-    evalMethod acc m@(Function n _ _) = do
+    evalMethod acc m@(Function n args _) = do
        st <- get
        fnEnvs <- gets functionEnvironments
        env <- gets environment >>= liftIO . readIORef
-       let fun = Fn (t_id n) 0 (t_lexeme n == "init") --  Hack: does this work? store the tokenid in the function object.
+       let fun = LoxFunction (length args) (t_id n) 0 (t_lexeme n == "init")
        let fnEnvs' = Map.insert fun (env, m) fnEnvs
        put $ st { functionEnvironments = fnEnvs' }
        return $ Map.insert (t_lexeme n) fun acc
 
 execute (Expression expr) = evaluate expr >> return ()
 
-execute stmt@(Function name _ _) = do
+execute stmt@(Function name args _) = do
      st <- get
      fnEnvs <- gets functionEnvironments
      env <- gets environment >>= liftIO . readIORef
-     --  Hack: does this work? store the tokenid in the function object.
-     --  also set the binding id to 0
-     let fun = Fn (t_id name) 0 False
+     let fun = LoxFunction (length args) (t_id name) 0 False
      let fnEnvs' = Map.insert fun (env, stmt) fnEnvs
      put $ st { functionEnvironments = fnEnvs' }
      envDefine (t_lexeme name) fun
@@ -151,7 +149,7 @@ evaluate (Call calleeExpr par argExprs) = do
     callee <- evaluate calleeExpr
     args <- mapM evaluate argExprs
     case callee of
-        fn@(Fn _ _ _) -> call fn args par
+        fn@(LoxFunction _ _ _ _) -> call fn args par
         cl@(LoxClass _ _ _) -> call cl args par
         x -> runtimeError par "Can only call functions and classes."
 
@@ -199,15 +197,14 @@ evaluate expr@(Variable name) = lookUpVariable name expr
 
 
 call :: Object -> [Object] -> Token -> Interpreter Object
-call fn@(Fn _ _ _) args paren = do
+call fn@(LoxFunction arity _ _ _) args paren = do
     fnEnvs <- gets functionEnvironments
     (closure, (Function name params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
     environment <- liftIO (Env.mkChildEnv closure)
-    if' (checkArity params args)
-        (devineArgs environment params args >> executeCall body environment)
-        (runtimeError paren "Wrong number of args") -- TODO: fix error msg
+    checkArity
+    devineArgs environment params args >> executeCall body environment
   where
-    checkArity ps as = length as == length ps
+    checkArity = if' (arity == length args) (return ()) (parityErrror paren arity (length args))
     devineArgs c ps as = mapM_ (\(p,a) ->  liftIO (Env.define (t_lexeme p) a c)) (zip ps as)
     executeCall b e =
         do { executeBlock b e; return Undefined }
@@ -217,18 +214,21 @@ call fn@(Fn _ _ _) args paren = do
                _ -> throwError e)
 
 call cl@(LoxClass n sc methods) args paren = do
-    if' (checkArity)
-        (return ())
-        (runtimeError paren "Wrong number of args") -- TODO: fix error msg
+    checkArity (Map.lookup "init" methods)
     ini <- mkInstance cl
     maybe
       (return ())
       (\fn  -> bind fn ini >>= \init' -> call init' args paren >> return ())
       (Map.lookup "init" methods)
-
     return ini
   where
-    checkArity =  True -- TODO: implement me. add arity to fns
+    checkArity (Just (LoxFunction arity _ _ _)) = if' (arity == length args) (return ()) (parityErrror paren arity (length args))
+
+    checkArity Nothing = return ()
+
+parityErrror :: Token -> Int -> Int -> Interpreter ()
+parityErrror paren expect got =
+    runtimeError paren ("Expected " ++ (show expect) ++ " arguments but got " ++ (show got) ++ ".")
 
 mkInstance :: Object -> Interpreter Object
 mkInstance cls = do
@@ -247,13 +247,13 @@ getNextInstanceId = do
     return id
 
 bind :: Object -> Object -> Interpreter Object
-bind fn@(Fn tokenId _ isInitializer) ini@(LoxInstance instanceId _) = do
+bind fn@(LoxFunction arity tokenId _ isInitializer) ini@(LoxInstance instanceId _) = do
     fnEnvs <- gets functionEnvironments
     st <- get
     let (closure, def) = fromJust $ Map.lookup fn fnEnvs
     newEnv <- liftIO (Env.mkChildEnv closure)
     liftIO $ Env.define "this" ini newEnv
-    let newFn = Fn tokenId instanceId isInitializer
+    let newFn = LoxFunction arity tokenId instanceId isInitializer
     let fnEnvs' = Map.insert newFn (newEnv, def) fnEnvs
     put $ st { functionEnvironments = fnEnvs'}
     return newFn

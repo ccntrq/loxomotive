@@ -7,7 +7,7 @@ data Object
     | String String
     | Bool Bool
     | Undefined
-    | Fn Int Int Bool -- tokenId, bindingId and isInitializer TODO: rename 'LoxFunction'
+    | LoxFunction Int Int Int Bool -- arity, tokenId, bindingId and isInitializer
     | LoxClass String (Maybe Object) (Map.Map String Object) -- name, superclass and methods
     | LoxInstance Int Object  -- instanceId, class and the fields
     deriving (Show, Eq, Ord)
