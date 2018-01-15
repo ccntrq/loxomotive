@@ -44,6 +44,8 @@
         testMethod() {
             print "methods work!";
         }
+
+        parentMethod() {return true;}
     }
     var testInstance = TestClass("first instance", true);
     testInstance.testMethod();
@@ -51,4 +53,19 @@
     var testInstance2 = TestClass("second instance", false);
     if (testInstance.testValue != testInstance2.testValue) print "instances work!";
     else ups; // should crash
+
+
+    class ExtendedTestClass < TestClass {
+        init () {
+            super.init("inheritance Works!", false);
+        }
+
+        testMethod() {
+            if ( this.parentMethod() ) print "calling method from parent works!";
+        }
+    }
+
+    var exInstance = ExtendedTestClass();
+    print exInstance.testValue;
+    exInstance.testMethod();
 }
