@@ -135,8 +135,8 @@ resolveExpr expr@(Super keyword _) =
     ifM (liftM ((==) CLASS_NONE) (gets currentClass))
         (resolverError keyword "Cannot use 'super' outside of a class.")
         (ifM (liftM ((==) SUBCLASS) (gets currentClass))
-            (resolverError keyword "Cannot use 'super' in a class with no superclass.")
-            (resolveLocal expr keyword))
+            (resolveLocal expr keyword)
+            (resolverError keyword "Cannot use 'super' in a class with no superclass."))
 
 resolveExpr expr@(This keyword) =
     ifM (liftM ((==) CLASS_NONE) (gets currentClass))
