@@ -28,7 +28,8 @@ data InterpreterState
     }
 
 data InterpreterError = InterpreterError Token String
-                      | ReturnException Object deriving (Show)
+                      | ReturnException Object
+                      | Unexpected deriving (Show)
 
 type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 
@@ -82,10 +83,11 @@ execute (Class name superclassExpr methods) = do
        st <- get
        fnEnvs <- gets functionEnvironments
        env <- gets environment >>= liftIO . readIORef
-       let fun = LoxFunction (length args) (t_id n) 0 (t_lexeme n == "init")
+       let fun = LoxFunction (t_lexeme n) (length args) (t_id n) 0 (t_lexeme n == "init")
        let fnEnvs' = Map.insert fun (env, m) fnEnvs
        put $ st { functionEnvironments = fnEnvs' }
        return $ Map.insert (t_lexeme n) fun acc
+    evalMethod _ _ = unexpected
 
 execute (Expression expr) = evaluate expr >> return ()
 
@@ -93,7 +95,7 @@ execute stmt@(Function name args _) = do
      st <- get
      fnEnvs <- gets functionEnvironments
      env <- gets environment >>= liftIO . readIORef
-     let fun = LoxFunction (length args) (t_id name) 0 False
+     let fun = LoxFunction (t_lexeme name) (length args) (t_id name) 0 False
      let fnEnvs' = Map.insert fun (env, stmt) fnEnvs
      put $ st { functionEnvironments = fnEnvs' }
      envDefine (t_lexeme name) fun
@@ -105,10 +107,10 @@ execute (If condition thenStmt elseStmt) =
 
 execute (Print expr) = evaluate expr >>= liftIO . putStrLn . stringify
 
-execute (Return _ value) = maybe (return Undefined) evaluate value >>= throwError . ReturnException
+execute (Return _ valueExpr) = maybe (return Undefined) evaluate valueExpr >>= throwError . ReturnException
 
-execute (Var name value) = do
-    value <- maybe (return Undefined)(evaluate)(value)
+execute (Var name valueExpr) = do
+    value <- maybe (return Undefined)(evaluate)(valueExpr)
     gets environment >>= liftIO . readIORef >>= liftIO . (Env.define (t_lexeme name) value)
 
 execute stmt@(While condition body) =
@@ -139,7 +141,7 @@ evaluate (Binary l operator r) = do
         SLASH -> checkNumberOperands operator left right >> (return $ Number (onNumbers (/) left right))
         STAR -> checkNumberOperands operator left right >> (return $ Number (onNumbers (*) left right))
         PLUS -> plus operator left right
-        _ -> undefined
+        _ -> unexpected
   where
     plus _ (Number a) (Number b) = return $ Number (a + b)
     plus _ (String a) (String b) = return $ String (a ++ b)
@@ -149,9 +151,9 @@ evaluate (Call calleeExpr par argExprs) = do
     callee <- evaluate calleeExpr
     args <- mapM evaluate argExprs
     case callee of
-        fn@(LoxFunction _ _ _ _) -> call fn args par
+        fn@(LoxFunction _ _ _ _ _) -> call fn args par
         cl@(LoxClass _ _ _) -> call cl args par
-        x -> runtimeError par "Can only call functions and classes."
+        _ -> runtimeError par "Can only call functions and classes."
 
 evaluate (Get objectExpr name) = do
     object <- evaluate objectExpr
@@ -168,7 +170,7 @@ evaluate (Logical l operator r) = do
     case t_type operator of
         OR -> if' (isTruthy left) (return left) (evaluate r)
         AND -> if' (not $ isTruthy left )(return left)(evaluate r)
-        _ -> undefined
+        _ -> unexpected
 
 evaluate (Set objectExpr name valueExpr) = do
     object <- evaluate objectExpr
@@ -191,29 +193,29 @@ evaluate (Unary operator r) =  do
     case t_type operator of
         BANG -> return $ (Bool . not . isTruthy) right
         MINUS -> checkNumberOperand operator right >> (return $ unaryMinus right)
-        _ -> undefined
+        _ -> unexpected
 
 evaluate expr@(Variable name) = lookUpVariable name expr
 
 
 call :: Object -> [Object] -> Token -> Interpreter Object
-call fn@(LoxFunction arity _ _ _) args paren = do
+call fn@(LoxFunction _ arity _ _ _) args paren = do
     fnEnvs <- gets functionEnvironments
-    (closure, (Function name params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
-    environment <- liftIO (Env.mkChildEnv closure)
+    (closure, (Function _ params body)) <- maybe (runtimeError paren "Weird function call.")(return)(Map.lookup fn fnEnvs)
+    env <- liftIO (Env.mkChildEnv closure)
     checkArity
-    devineArgs environment params args >> executeCall body environment
+    devineArgs env params args >> executeCall body env
   where
-    checkArity = if' (arity == length args) (return ()) (parityErrror paren arity (length args))
+    checkArity = if' (arity == length args) (return ()) (arityErrror paren arity (length args))
     devineArgs c ps as = mapM_ (\(p,a) ->  liftIO (Env.define (t_lexeme p) a c)) (zip ps as)
-    executeCall b e =
-        do { executeBlock b e; return Undefined }
+    executeCall b env =
+        do { executeBlock b env; return Undefined }
            `catchError`
            (\e -> case e of
                (ReturnException object) -> return object
                _ -> throwError e)
 
-call cl@(LoxClass n sc methods) args paren = do
+call cl@(LoxClass _ _ methods) args paren = do
     checkArity (Map.lookup "init" methods)
     ini <- mkInstance cl
     maybe
@@ -222,13 +224,12 @@ call cl@(LoxClass n sc methods) args paren = do
       (Map.lookup "init" methods)
     return ini
   where
-    checkArity (Just (LoxFunction arity _ _ _)) = if' (arity == length args) (return ()) (parityErrror paren arity (length args))
+    checkArity (Just (LoxFunction _ arity _ _ _)) = if' (arity == length args) (return ()) (arityErrror paren arity (length args))
 
     checkArity Nothing = return ()
+    checkArity _ = unexpected
 
-parityErrror :: Token -> Int -> Int -> Interpreter ()
-parityErrror paren expect got =
-    runtimeError paren ("Expected " ++ (show expect) ++ " arguments but got " ++ (show got) ++ ".")
+call _ _ _ = unexpected
 
 mkInstance :: Object -> Interpreter Object
 mkInstance cls = do
@@ -242,22 +243,22 @@ mkInstance cls = do
 getNextInstanceId :: Interpreter Int
 getNextInstanceId = do
     st <- get
-    let id = nextInstanceId st
-    put st {nextInstanceId = id + 1}
-    return id
+    let i_id = nextInstanceId st
+    put st {nextInstanceId = i_id + 1}
+    return i_id
 
 bind :: Object -> Object -> Interpreter Object
-bind fn@(LoxFunction arity tokenId _ isInitializer) ini@(LoxInstance instanceId _) = do
+bind fn@(LoxFunction name arity tokenId _ isInitializer) ini@(LoxInstance instanceId _) = do
     fnEnvs <- gets functionEnvironments
     st <- get
     let (closure, def) = fromJust $ Map.lookup fn fnEnvs
     newEnv <- liftIO (Env.mkChildEnv closure)
     liftIO $ Env.define "this" ini newEnv
-    let newFn = LoxFunction arity tokenId instanceId isInitializer
+    let newFn = LoxFunction name arity tokenId instanceId isInitializer
     let fnEnvs' = Map.insert newFn (newEnv, def) fnEnvs
     put $ st { functionEnvironments = fnEnvs'}
     return newFn
-    -- TODO use existing binding if exists?
+bind _ _ = unexpected
 
 findMethod :: Object -> String -> Object -> Interpreter (Maybe Object)
 findMethod ini name clss  = do
@@ -266,16 +267,17 @@ findMethod ini name clss  = do
             (maybe (return Nothing) (findMethod ini name) sc)
             (\m -> bind m ini >>= return . Just)
             (Map.lookup name values)
+        _ -> unexpected
 
 instanceSet :: Object -> Token -> Object -> Interpreter Object
-instanceSet ini@(LoxInstance instanceId clss) name value = do
+instanceSet ini name value = do
     values <- getInstanceFields ini
     let values' = Map.insert (t_lexeme name) value values
     setInstanceFields ini values'
     return value
 
 instanceGet :: Object -> Token -> Interpreter Object
-instanceGet ini@(LoxInstance instanceId clss) name =
+instanceGet ini@(LoxInstance _ clss) name =
     maybeM
     (maybeM
       (runtimeError  name $ "Undefined property '" ++ (t_lexeme name) ++ "'.")
@@ -283,6 +285,7 @@ instanceGet ini@(LoxInstance instanceId clss) name =
       (findMethod ini (t_lexeme name) clss))
     (return)
     (getInstanceFields ini >>= return . (Map.lookup (t_lexeme name)))
+instanceGet _ _ = unexpected
 
 getInstanceFields :: Object -> Interpreter (Map.Map String Object)
 getInstanceFields ini = gets instanceFields >>= return . fromJust . (Map.lookup ini)
@@ -325,7 +328,7 @@ unaryMinus (Number n) = Number (-n)
 unaryMinus _ = undefined
 
 stringify :: Object -> String
-stringify (Undefined) = "nil"
+stringify Undefined = "nil"
 stringify (String s) = s
 stringify (Number n) = removeTrailingDotZero (show n)
   where
@@ -335,13 +338,12 @@ stringify (Number n) = removeTrailingDotZero (show n)
         | otherwise = str
 stringify (Bool b)  = show b
 stringify (LoxInstance _ (LoxClass name _ _) ) = name ++ " instance"
+stringify (LoxClass name _ _) = name
+stringify (LoxFunction name _ _ _ _) = "<fn " ++ name ++ ">"
+stringify _ = undefined
 
 putEnv :: Env.Environment -> Interpreter ()
 putEnv env = gets environment >>= \envRef -> liftIO  (writeIORef envRef env)
-
--- Error reporting
-runtimeError :: Token -> String -> Interpreter a
-runtimeError t msg = throwError $ InterpreterError t msg
 
 -- Env
 
@@ -374,9 +376,23 @@ envGetAt distance token env =  do
       (return)
       (liftIO (Env.getAt distance (t_lexeme token) env))
 
+-- Error reporting
+runtimeError :: Token -> String -> Interpreter a
+runtimeError t msg = throwError $ InterpreterError t msg
 
+arityErrror :: Token -> Int -> Int -> Interpreter ()
+arityErrror paren expect got =
+    runtimeError paren ("Expected " ++ (show expect) ++ " arguments but got " ++ (show got) ++ ".")
+
+undefinedVariable :: Token -> Interpreter a
 undefinedVariable t = runtimeError t ("Undefined variable '" ++ t_lexeme t ++ "'.")
 
+-- used for unexpected situations
+-- this should really never happen
+unexpected :: Interpreter a
+unexpected = throwError Unexpected
+
 -- Debugging
-dumpEnv :: Interpreter ()
-dumpEnv =gets environment >>= liftIO . readIORef >>= liftIO . Env.dump
+
+-- dumpEnv :: Interpreter ()
+-- dumpEnv = gets environment >>= liftIO . readIORef >>= liftIO . Env.dump
