@@ -1,4 +1,4 @@
-module Lox where
+module Loxomotive where
 
 import Scanner
 import Parser
@@ -23,10 +23,10 @@ dispatch files
     | otherwise = usage
 
 version :: IO ()
-version = putStrLn "loxWork v0.0.1"
+version = putStrLn "loxomotive v1.0.0"
 
 usage :: IO ()
-usage = version >> putStrLn "Usage: Lox [filename]"
+usage = version >> putStrLn "Usage: loxomotive [filename]"
 
 repl :: IO ()
 repl = do
