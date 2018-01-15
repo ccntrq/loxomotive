@@ -9,6 +9,10 @@ import System.IO
 import System.Environment
 import System.Exit
 
+import Control.Monad.Extra(maybeM)
+import Data.Maybe (fromJust, isNothing)
+import Control.Conditional (if')
+
 main :: IO ()
 main = getArgs >>= dispatch
 
@@ -46,17 +50,15 @@ runSource :: String -> IO ()
 runSource src = initState >>= \s -> runSource' s src >> return ()
 
 runSource' :: InterpreterState -> String -> IO InterpreterState
-runSource' st src =
-    either
-        (hasError)
-        (\tokens -> either
-             (hasError)
-             (\stmts -> resolve (locals st) stmts >>=
-             (either (hasError) (\locals' -> interpret (st {locals = locals'}) stmts)))
-          (parse tokens))
-    (scan src)
-  where
-    hasError e = print e >> return st
+runSource' st src = do
+    (scanError, tokens) <- scanIO src
+    parseRes <- parseIO tokens
+    if' (scanError  || (isNothing parseRes))
+        (return st)
+        (maybeM
+           (return st)
+           (\locals' -> interpret (st {locals = locals'}) (fromJust parseRes))
+           (resolve (locals st) (fromJust parseRes)))
 
 exit :: IO ()
 exit = exitWith ExitSuccess

@@ -1,4 +1,4 @@
-module Scanner (scan) where
+module Scanner (scan, scanIO) where
 
 import Util
 
@@ -23,20 +23,32 @@ data ScannerState = ScannerState
   , start   :: Int
   , current :: Int
   , tokenID :: Int
+  , hasErrors :: [ScannerError]
   } deriving (Show)
 
 data ScannerError = ScannerError Int String deriving (Show)
 
 type Scanner a = ExceptT ScannerError (StateT ScannerState Identity) a
 
-scan :: String -> Either ScannerError [Token]
-scan src = runScanner (initState src) scanTokens
+scanIO :: String -> IO (Bool, [Token])
+scanIO src =
+    let res = scan src
+    in either (\(es,ts) -> mapM_ (printError) es >> return (True, ts)) (\r -> return (False, r)) res
+  where
+    printError (ScannerError l msg) = putStrLn $ "[line " ++ (show l) ++ "] Error: " ++ msg
 
-runScanner :: ScannerState -> Scanner a -> Either ScannerError a
-runScanner st s = runIdentity $ evalStateT (runExceptT s) st
+scan :: String -> Either ([ScannerError],[Token]) [Token]
+scan src =
+    let (res, s) = runScanner (initState src) scanTokens
+    in if ((not . null . hasErrors) s)
+        then Left $ (reverse (hasErrors s), (reverse (tokens s)))
+        else either (\e -> Left ([e], (reverse (tokens s)))) (Right) res
+
+runScanner :: ScannerState -> Scanner a -> (Either ScannerError a, ScannerState)
+runScanner st s = runIdentity $ runStateT (runExceptT s) st
 
 initState :: String -> ScannerState
-initState src = ScannerState src [] 1 0 0 0
+initState src = ScannerState src [] 1 0 0 0 []
 
 keywords :: Map.Map String TokenType
 keywords = Map.fromList [ ("and",    AND)
@@ -66,7 +78,7 @@ scanTokens = ifM isAtEnd done next
     next = do
         st <- get
         put (st {start = current st})
-        _ <- scanToken
+        _ <- scanToken `catchError` (\e -> get >>= \s -> put (s {hasErrors = e : (hasErrors s) }) >> return (Token EOF "error token" Nothing 0 0))
         scanTokens
 
 scanToken :: Scanner Token

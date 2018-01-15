@@ -31,10 +31,14 @@ type Resolver a = ExceptT ResolverError (StateT ResolverState IO) a
 data FunctionType = FUN_NONE | FUNCTION | INITITIALIZER | METHOD deriving (Show, Eq)
 data ClassType = CLASS_NONE | CLASS | SUBCLASS deriving (Show, Eq)
 
-resolve :: Locals -> [Stmt] -> IO (Either ResolverError Locals)
+-- TODO: report multiple resolver errors
+resolve :: Locals -> [Stmt] -> IO (Maybe Locals)
 resolve l stmts = do
     (res, s) <- runResolver (initState l) (resolveStmts stmts)
-    either (return . Left) (\_ -> return $ Right (locals s)) (res)
+    either (\e -> printError e >> return Nothing) (\_ -> return $ Just (locals s)) (res)
+  where
+    printError (ResolverError token msg) =
+        putStrLn $ "[line " ++ ((show . t_line) token) ++ "] Error at "  ++ (t_lexeme token) ++  ": " ++ msg
 
 runResolver :: ResolverState -> Resolver a -> IO (Either ResolverError a, ResolverState)
 runResolver st i = runStateT (runExceptT i) st

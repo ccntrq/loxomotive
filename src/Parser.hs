@@ -1,4 +1,4 @@
-module Parser (parse) where
+module Parser (parse, parseIO) where
 
 import Expr
 import Object
@@ -19,18 +19,23 @@ data ParserState = ParserState
     , errors :: [ParserError]
     } deriving (Show)
 
-data ParserError = ParserError Token String
-                 | ParserErrorCollection [ParserError] deriving (Show)
+data ParserError = ParserError Token String deriving (Show)
 
 type Parser a = ExceptT ParserError (StateT ParserState Identity) a
 
-parse :: [Token] -> Either ParserError [Stmt]
+parseIO :: [Token] -> IO (Maybe [Stmt])
+parseIO ts = either (\es -> mapM_ printError es >> return Nothing) (return . Just) (parse ts)
+  where
+    printError (ParserError token msg) =
+        putStrLn $ "[line " ++ ((show . t_line) token) ++ "] Error at "  ++ (if' (t_type token == EOF) ("end") (t_lexeme token)) ++  ": " ++ msg
+
+parse :: [Token] -> Either [ParserError] [Stmt]
 parse ts = runParser (initState ts) parseIt
 
-runParser :: ParserState -> Parser a -> Either ParserError a
+runParser :: ParserState -> Parser a -> Either [ParserError] a
 runParser st p =
     let (res, finalState) = runIdentity $ runStateT (runExceptT p) st
-    in if null $ errors finalState then res else Left $ ParserErrorCollection $ (reverse . errors) finalState
+    in if null $ errors finalState then either (\e -> Left [e]) (Right) res else Left $ (reverse . errors) finalState
 
 
 initState :: [Token] -> ParserState

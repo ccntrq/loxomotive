@@ -36,7 +36,10 @@ type Interpreter a = ExceptT InterpreterError (StateT InterpreterState IO) a
 interpret :: InterpreterState -> [Stmt] -> IO InterpreterState
 interpret st stmts = do
     (res, s) <- runInterpreter st (interpretStmts stmts)
-    either (\e -> print e >> return st) (\_ -> return s) (res)
+    either (\e -> printError e >> return st) (\_ -> return s) (res)
+  where
+    printError (InterpreterError t msg) = putStrLn msg >> putStrLn ("[line " ++ ((show . t_line) t) ++ "]")
+    printError e = error (show e)
 
 runInterpreter :: InterpreterState -> Interpreter a -> IO (Either InterpreterError a, InterpreterState)
 runInterpreter st i = runStateT (runExceptT i) st
