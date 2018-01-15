@@ -178,13 +178,13 @@ evaluate (Set objectExpr name valueExpr) = do
         ini@(LoxInstance _ _) -> evaluate valueExpr >>= instanceSet ini name
         _ -> runtimeError name "Only instances have fields."
 
-
--- WIP
--- evaluate expr@(Super keyword methodname) = do
---      distance <- liftM fromJust (distanceLookup expr)
---      superclass <- envGetAt distance "super"
---      object <- envGetAt (distance - 1) "this"
---      method <- findMethod superclass object (t_lexeme methodname)
+evaluate expr@(Super _ methodname) = do
+     env <- gets environment >>= liftIO . readIORef
+     distance <- liftM fromJust (distanceLookup expr)
+     superclass <- envGetAt distance "super" env
+     object <- envGetAt (distance - 1) "this" env
+     method <- findMethod object (t_lexeme methodname) superclass
+     maybe (runtimeError methodname $ "Undefined property '" ++ (t_lexeme methodname) ++ "'.") return method
 
 evaluate expr@(This keyword) = lookUpVariable keyword expr
 
@@ -297,7 +297,7 @@ lookUpVariable :: Token -> Expr -> Interpreter Object
 lookUpVariable name expr =
     maybeM
     (gets global >>= liftIO . readIORef >>= envGet name)
-    (\dist -> gets (environment) >>= liftIO . readIORef >>= envGetAt dist name)
+    (\dist -> gets (environment) >>= liftIO . readIORef >>= envGetAt dist (t_lexeme name))
     (distanceLookup expr)
 
 distanceLookup :: Expr -> Interpreter (Maybe Int)
@@ -369,12 +369,8 @@ envGet token env =
     (return)
     (liftIO (Env.get (t_lexeme token) env))
 
-envGetAt :: Int -> Token -> Env.Environment -> Interpreter Object
-envGetAt distance token env =  do
-    maybeM
-      (undefinedVariable token)
-      (return)
-      (liftIO (Env.getAt distance (t_lexeme token) env))
+envGetAt :: Int -> String -> Env.Environment -> Interpreter Object
+envGetAt distance name env = liftIO (Env.getAt distance name env) >>= return . fromJust
 
 -- Error reporting
 runtimeError :: Token -> String -> Interpreter a
