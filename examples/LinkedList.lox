@@ -49,9 +49,11 @@ class LinkedList {
 
 fun square(a) { return a*a; }
 fun even(a) {
+    while(a>1){
+        a=a-2;
+    }
     if(a == 0 ) { return true; }
     if(a == 1 ) { return false; }
-    return even(a-2);
 }
 fun sum(a,b) { return a+b; }
 
