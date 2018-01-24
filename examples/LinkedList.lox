@@ -1,0 +1,64 @@
+class LinkedList {
+    // creates an empty list
+    init() {
+        this.value = "";
+        this.next = "";
+    }
+
+    // cons something to the list
+    cons(value) {
+        var newHead = LinkedList();
+        newHead.value = value;
+        newHead.next = this;
+        return newHead;
+    }
+
+    printList(){
+        if(this.next == "") { return; }
+        print this.value;
+        return this.next.printList();
+    }
+
+    map(fn) {
+        if(this.next == "") { return LinkedList(); }
+        var head = LinkedList();
+        head.value = fn(this.value);
+        head.next = this.next.map(fn);
+        return head;
+    }
+
+    filter(fn){
+        if(this.next == "") { return LinkedList(); }
+        var rest = this.next.filter(fn);
+
+        if ( fn(this.value) ){
+            var head = LinkedList();
+            head.value = this.value;
+            head.next = rest;
+            return head;
+        }
+        return rest;
+    }
+
+    reduce(fn, acc) {
+        if(this.next == "") { return acc; }
+        var newAcc = fn(acc, this.value);
+        return this.next.reduce(fn,newAcc);
+    }
+}
+
+fun square(a) { return a*a; }
+fun even(a) {
+    if(a == 0 ) { return true; }
+    if(a == 1 ) { return false; }
+    return even(a-2);
+}
+fun sum(a,b) { return a+b; }
+
+var head = LinkedList();
+for(var i = 0; i<1000; i=i+1){
+    head = head.cons(i);
+}
+
+var evenSquaredSum = head.filter(even).map(square).reduce(sum, 0);
+print evenSquaredSum;
