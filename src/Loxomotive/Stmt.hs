@@ -1,7 +1,7 @@
-module Stmt where
+module Loxomotive.Stmt where
 
-import Expr
-import Token
+import Loxomotive.Expr
+import Loxomotive.Token
 
 data Stmt
     = Block [Stmt]

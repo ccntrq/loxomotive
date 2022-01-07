@@ -1,6 +1,6 @@
-module Environment where
+module Loxomotive.Environment where
 
-import Object
+import Loxomotive.Object
 
 import Control.Conditional  (if')
 import Data.Maybe

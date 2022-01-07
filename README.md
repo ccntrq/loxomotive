@@ -33,21 +33,19 @@ close as possible. I might refactor some of this later.
 
 ### Dependencies
 
-To build and run the interpreter you will need a version of `ghc`. You will
-also need some hakell libraries from hackage. These are:
-
-- [mtl](https://hackage.haskell.org/package/mtl)
-- [cond](https://hackage.haskell.org/package/cond)
-- [monad-loops](https://hackage.haskell.org/package/monad-loops)
-- [Stack](https://hackage.haskell.org/package/Stack)
-- [extra](https://hackage.haskell.org/package/extra)
+To build and run the interpreter you will need a version of [stack](haskellstack.org).
 
 ### Build
 
-There is a little build script that helps building the interpreter. Run it with
-`./make` and the binary will be output to `loxomotive`.
+```
+stack build
+```
 
 ### Run
+
+```
+stack run -- [filename]
+```
 
 You can invoke `loxomotive` either with zero args to start the repl or with a
 file to interpret that file

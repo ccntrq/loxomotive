@@ -1,10 +1,10 @@
-module Parser (parse, parseIO) where
+module Loxomotive.Parser (parse, parseIO) where
 
-import Expr
-import Object
-import Stmt
-import Token
-import TokenType
+import Loxomotive.Expr
+import Loxomotive.Object
+import Loxomotive.Stmt
+import Loxomotive.Token
+import Loxomotive.TokenType
 
 import Control.Conditional
 import Control.Monad.Loops
