@@ -1,11 +1,11 @@
-module Interpreter (interpret, initState, InterpreterState(..)) where
+module Loxomotive.Interpreter (interpret, initState, InterpreterState(..)) where
 
-import qualified Environment as Env
-import Expr
-import Object
-import Stmt
-import Token
-import TokenType
+import qualified Loxomotive.Environment as Env
+import Loxomotive.Expr
+import Loxomotive.Object
+import Loxomotive.Stmt
+import Loxomotive.Token
+import Loxomotive.TokenType
 
 import Control.Monad.Except
 import Control.Monad.State

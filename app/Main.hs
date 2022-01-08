@@ -1,9 +1,9 @@
-module Loxomotive where
+module Main where
 
-import Scanner
-import Parser
-import Resolver
-import Interpreter
+import Loxomotive.Scanner
+import Loxomotive.Parser
+import Loxomotive.Resolver
+import Loxomotive.Interpreter
 
 import System.IO
 import System.Environment

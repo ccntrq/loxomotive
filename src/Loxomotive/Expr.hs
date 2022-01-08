@@ -1,7 +1,7 @@
-module Expr where
+module Loxomotive.Expr where
 
-import Object
-import Token
+import Loxomotive.Object
+import Loxomotive.Token
 
 data Expr
     = Assign Token Expr

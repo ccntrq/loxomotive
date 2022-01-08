@@ -1,4 +1,4 @@
-module Object where
+module Loxomotive.Object where
 
 import Data.Map.Strict as Map
 

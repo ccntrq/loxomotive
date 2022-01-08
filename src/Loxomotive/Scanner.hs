@@ -1,10 +1,10 @@
-module Scanner (scan, scanIO) where
+module Loxomotive.Scanner (scan, scanIO) where
 
-import Util
+import Loxomotive.Util
 
-import Token
-import TokenType
-import Object
+import Loxomotive.Token
+import Loxomotive.TokenType
+import Loxomotive.Object
 
 import Control.Conditional
 

@@ -1,4 +1,4 @@
-module TokenType where
+module Loxomotive.TokenType where
 
 data TokenType
   -- Single-character tokens.

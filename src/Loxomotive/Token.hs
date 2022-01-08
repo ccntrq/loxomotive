@@ -1,7 +1,7 @@
-module Token where
+module Loxomotive.Token where
 
-import TokenType
-import Object
+import Loxomotive.TokenType
+import Loxomotive.Object
 
 data Token = Token
   { t_type :: TokenType

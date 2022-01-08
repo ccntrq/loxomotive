@@ -1,8 +1,8 @@
-module Resolver (resolve) where
+module Loxomotive.Resolver (resolve) where
 
-import Expr
-import Stmt
-import Token
+import Loxomotive.Expr
+import Loxomotive.Stmt
+import Loxomotive.Token
 
 import Control.Monad.Except
 import Control.Monad.State
